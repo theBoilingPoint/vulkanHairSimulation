@@ -8,3 +8,6 @@
 *.vcxproj.filters
 *.vcxproj.user
 x64/
+
+# Xcode build files
+*.xcodeproj
