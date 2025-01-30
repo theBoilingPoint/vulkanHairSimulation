@@ -1,0 +1,10 @@
+# System files
+.vs/
+.DS_Store
+
+# Visual studio build files
+*.sln
+*.vcxproj
+*.vcxproj.filters
+*.vcxproj.user
+x64/

@@ -1,1 +1,1 @@
-# vulkanHairSimulation
+# Vulkan Hair Simulation
