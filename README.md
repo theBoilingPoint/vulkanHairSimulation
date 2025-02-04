@@ -4,7 +4,7 @@
 This repository only includes the C++ source and header files. Therefore, to actually run the projects on different platforms, you need to link the libraries after cloning following the [Vulkan tutorial](https://vulkan-tutorial.com/Development_environment).
 
 ### Windows
-You'll need to create an empty project in Visual Studio and add the source and header files to the project. Then, you just need to follow the link provided above.
+You'll need to create an empty project in Visual Studio and add the source and header files to the project. Then, you just need to follow the link provided above. Note that you might have to set up Release and Debug configurations separately.
 
 ### MacOS
 You'll need to create a new project in Xcode as described in the tutorial and add the source and header files to the project. However, note that the website might be outdated. 
