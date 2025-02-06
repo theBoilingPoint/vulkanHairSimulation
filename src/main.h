@@ -88,6 +88,10 @@ private:
 	VkPipeline graphicsPipeline;
 	std::vector<VkFramebuffer> swapChainFramebuffers;
 	VkCommandPool commandPool;
+	VkBuffer vertexBuffer;
+	VkDeviceMemory vertexBufferMemory;
+	VkBuffer indexBuffer;
+	VkDeviceMemory indexBufferMemory;
 	// Command buffers will be automatically freed when their command pool is destroyed, so we don't need explicit cleanup.
 	std::vector<VkCommandBuffer> commandBuffers;
 	std::vector<VkSemaphore> imageAvailableSemaphores;
@@ -167,4 +171,14 @@ private:
 	void recreateSwapChain();
 
 	static void framebufferResizeCallback(GLFWwindow* window, int width, int height);
+
+	uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties);
+
+	void copyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size);
+
+	void createVertexBuffer();
+
+	void createBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory& bufferMemory);	
+
+	void createIndexBuffer();
 };
