@@ -1,6 +1,10 @@
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 
+#define GLM_FORCE_RADIANS
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+
 #include <iostream>
 #include <stdexcept>
 #include <cstdlib>
@@ -11,8 +15,10 @@
 #include <cstdint> 
 #include <limits> 
 #include <algorithm> 
+#include <chrono>
 
 #include "utils.h"
+#include "uniformBuffer.h"
 
 #ifdef NDEBUG
 const bool enableValidationLayers = false;
@@ -84,6 +90,7 @@ private:
 	VkExtent2D swapChainExtent;
 	std::vector<VkImageView> swapChainImageViews;
 	VkRenderPass renderPass;
+	VkDescriptorSetLayout descriptorSetLayout;
 	VkPipelineLayout pipelineLayout;
 	VkPipeline graphicsPipeline;
 	std::vector<VkFramebuffer> swapChainFramebuffers;
@@ -92,6 +99,11 @@ private:
 	VkDeviceMemory vertexBufferMemory;
 	VkBuffer indexBuffer;
 	VkDeviceMemory indexBufferMemory;
+	VkDescriptorPool descriptorPool;
+	std::vector<VkDescriptorSet> descriptorSets;
+	std::vector<VkBuffer> uniformBuffers;
+	std::vector<VkDeviceMemory> uniformBuffersMemory;
+	std::vector<void*> uniformBuffersMapped;
 	// Command buffers will be automatically freed when their command pool is destroyed, so we don't need explicit cleanup.
 	std::vector<VkCommandBuffer> commandBuffers;
 	std::vector<VkSemaphore> imageAvailableSemaphores;
@@ -150,6 +162,8 @@ private:
 
 	VkShaderModule createShaderModule(const std::vector<char>& code);
 
+	void createDescriptorSetLayout();
+
 	void createGraphicsPipeline();
 
 	void createRenderPass();
@@ -181,4 +195,12 @@ private:
 	void createBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory& bufferMemory);	
 
 	void createIndexBuffer();
+
+	void createUniformBuffers();
+
+	void updateUniformBuffer(uint32_t currentImage);
+
+	void createDescriptorPool();
+
+	void createDescriptorSets();
 };
