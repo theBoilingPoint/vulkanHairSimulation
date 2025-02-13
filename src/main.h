@@ -6,9 +6,6 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
-#define STB_IMAGE_IMPLEMENTATION
-#include <stb_image.h>
-
 #include <filesystem>
 #include <iostream>
 #include <stdexcept>
@@ -21,9 +18,11 @@
 #include <limits> 
 #include <algorithm> 
 #include <chrono>
+#include <unordered_map>
 
 #include "utils.h"
 #include "uniformBuffer.h"
+#include "vertex.h"
 
 #ifdef NDEBUG
 const bool enableValidationLayers = false;
@@ -100,6 +99,8 @@ private:
 	VkPipeline graphicsPipeline;
 	std::vector<VkFramebuffer> swapChainFramebuffers;
 	VkCommandPool commandPool;
+	std::vector<Vertex> vertices;
+	std::vector<uint32_t> indices;
 	VkBuffer vertexBuffer;
 	VkDeviceMemory vertexBufferMemory;
 	VkBuffer indexBuffer;
@@ -244,4 +245,6 @@ private:
 	VkFormat findDepthFormat();
 
 	bool hasStencilComponent(VkFormat format);
+
+	void loadModel(const std::string& modelPath);
 };

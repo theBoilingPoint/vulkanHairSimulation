@@ -1,7 +1,26 @@
 #pragma once
 
+#define STB_IMAGE_IMPLEMENTATION
+#include <stb_image.h>
+
+#define TINYOBJLOADER_IMPLEMENTATION
+#include <tiny_obj_loader.h>
+
 #include <fstream>
 #include <shaderc/shaderc.hpp>
+
+struct Image {
+	int width;
+	int	height;
+	int	channels;
+	stbi_uc* pixels;
+};
+
+struct ObjModel {
+	tinyobj::attrib_t attrib;
+	std::vector<tinyobj::shape_t> shapes;
+	std::vector<tinyobj::material_t> materials;
+};
 
 // Function to read a shader source file
 std::string readShaderFile(const std::string& filePath) {
@@ -57,4 +76,87 @@ std::vector<char> readFile(const std::string& filename) {
 	file.close();
 
 	return buffer;
+}
+
+Image loadImage(const std::string& imagePath) {
+	if (!std::filesystem::exists(imagePath)) {
+		throw std::runtime_error("The image doesn't exist in the relative path: " + imagePath);
+	}
+
+	int texWidth, texHeight, texChannels;
+	stbi_uc* pixels = stbi_load(imagePath.c_str(), &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
+	VkDeviceSize imageSize = texWidth * texHeight * 4;
+
+	if (!pixels) {
+		throw std::runtime_error("failed to load texture image!");
+	}
+
+	Image image;
+	image.width = texWidth;
+	image.height = texHeight;
+	image.channels = texChannels;
+	image.pixels = pixels;
+
+	return image;
+}
+
+ObjModel loadObj(const std::string& modelPath) {
+	if (!std::filesystem::exists(modelPath)) {
+		throw std::runtime_error("The .obj file doesn't exist in the relative path: " + modelPath);
+	}
+
+	tinyobj::ObjReader reader;
+
+	if (!reader.ParseFromFile(modelPath)) {
+		if (!reader.Error().empty()) {
+			throw std::runtime_error(reader.Error());
+		}
+	}
+
+	if (!reader.Warning().empty()) {
+		std::cout << "TinyObjReader warning: " << reader.Warning();
+	}
+
+	auto& attrib = reader.GetAttrib();
+	auto& shapes = reader.GetShapes();
+	auto& materials = reader.GetMaterials();
+
+	// Loop over shapes
+	for (size_t s = 0; s < shapes.size(); s++) {
+		// Loop over faces(polygon)
+		size_t index_offset = 0;
+		for (size_t f = 0; f < shapes[s].mesh.num_face_vertices.size(); f++) {
+			size_t fv = size_t(shapes[s].mesh.num_face_vertices[f]);
+
+			// Loop over vertices in the face.
+			for (size_t v = 0; v < fv; v++) {
+				// access to vertex
+				tinyobj::index_t idx = shapes[s].mesh.indices[index_offset + v];
+				tinyobj::real_t vx = attrib.vertices[3 * size_t(idx.vertex_index) + 0];
+				tinyobj::real_t vy = attrib.vertices[3 * size_t(idx.vertex_index) + 1];
+				tinyobj::real_t vz = attrib.vertices[3 * size_t(idx.vertex_index) + 2];
+
+				// Check if `normal_index` is zero or positive. negative = no normal data
+				if (idx.normal_index >= 0) {
+					tinyobj::real_t nx = attrib.normals[3 * size_t(idx.normal_index) + 0];
+					tinyobj::real_t ny = attrib.normals[3 * size_t(idx.normal_index) + 1];
+					tinyobj::real_t nz = attrib.normals[3 * size_t(idx.normal_index) + 2];
+				}
+
+				// Check if `texcoord_index` is zero or positive. negative = no texcoord data
+				if (idx.texcoord_index >= 0) {
+					tinyobj::real_t tx = attrib.texcoords[2 * size_t(idx.texcoord_index) + 0];
+					tinyobj::real_t ty = attrib.texcoords[2 * size_t(idx.texcoord_index) + 1];
+				}
+			}
+			index_offset += fv;
+		}
+	}
+
+	ObjModel model;
+	model.attrib = attrib;
+	model.shapes = shapes;
+	model.materials = materials;
+
+	return model;
 }

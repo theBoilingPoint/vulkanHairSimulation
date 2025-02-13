@@ -30,9 +30,10 @@ void Main::initVulkan() {
 	createCommandPool();
 	createDepthResources();
 	createFramebuffers();
-	createTextureImage("textures/img1.jpg");
+	createTextureImage("models/objs/vikingRoom/viking_room.png");
 	createTextureImageView();
 	createTextureSampler();
+	loadModel("models/objs/vikingRoom/viking_room.obj");
 	createVertexBuffer();
 	createIndexBuffer();
 	createUniformBuffers();
@@ -891,7 +892,7 @@ void Main::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageInde
 	VkBuffer vertexBuffers[] = { vertexBuffer };
 	VkDeviceSize offsets[] = { 0 };
 	vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
-	vkCmdBindIndexBuffer(commandBuffer, indexBuffer, 0, VK_INDEX_TYPE_UINT16);
+	vkCmdBindIndexBuffer(commandBuffer, indexBuffer, 0, VK_INDEX_TYPE_UINT32);
 
 	// We need to do this because we've set the viewport and scissor to be dynamic.
 	VkViewport viewport{};
@@ -1185,13 +1186,11 @@ void Main::createTextureImage(const std::string& imagePath) {
 		throw std::runtime_error("The image doesn't exist in the relative path: " + imagePath);
 	}
 
-	int texWidth, texHeight, texChannels;
-	stbi_uc* pixels = stbi_load(imagePath.c_str(), &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
+	const Image image = loadImage(imagePath);
+	const int texWidth = image.width;
+	const int texHeight = image.height;
+	stbi_uc* pixels = image.pixels;
 	VkDeviceSize imageSize = texWidth * texHeight * 4;
-
-	if (!pixels) {
-		throw std::runtime_error("failed to load texture image!");
-	}
 
 	VkBuffer stagingBuffer;
 	VkDeviceMemory stagingBufferMemory;
@@ -1457,6 +1456,41 @@ VkFormat Main::findDepthFormat() {
 
 bool Main::hasStencilComponent(VkFormat format) {
 	return format == VK_FORMAT_D32_SFLOAT_S8_UINT || format == VK_FORMAT_D24_UNORM_S8_UINT;
+}
+
+void Main::loadModel(const std::string& modelPath) {
+	const ObjModel model = loadObj(modelPath);
+	const auto& attrib = model.attrib;
+	const auto& shapes = model.shapes;
+
+	std::unordered_map<Vertex, uint32_t> uniqueVertices{};
+	for (const auto& shape : shapes) {
+		for (const auto& index : shape.mesh.indices) {
+			Vertex vertex{};
+
+			vertex.pos = {
+				attrib.vertices[3 * index.vertex_index + 0],
+				attrib.vertices[3 * index.vertex_index + 1],
+				attrib.vertices[3 * index.vertex_index + 2]
+			};
+
+			// The OBJ format assumes a coordinate system where a vertical coordinate of 0 means the bottom of the image, 
+			// however we've uploaded our image into Vulkan in a top to bottom orientation where 0 means the top of the image.
+			vertex.texCoord = {
+				attrib.texcoords[2 * index.texcoord_index + 0],
+				1.0f - attrib.texcoords[2 * index.texcoord_index + 1]
+			};
+
+			vertex.color = { 1.0f, 1.0f, 1.0f };
+
+			if (uniqueVertices.count(vertex) == 0) {
+				uniqueVertices[vertex] = static_cast<uint32_t>(vertices.size());
+				vertices.push_back(vertex);
+			}
+
+			indices.push_back(uniqueVertices[vertex]);
+		}
+	}
 }
 
 int main() {
