@@ -1,13 +1,20 @@
 #include "main.h"
 #include "vertex.h"
 
+Main::Main(std::vector<char> vertShaderCode, std::vector<char> fragShaderCode, std::vector<Vertex> vertices,
+	std::vector<uint32_t> indices, int texWidth, int texHeight, stbi_uc* pixels) {
+	this->vertices = vertices;
+	this->indices = indices;
+
+	initVulkan(vertShaderCode, fragShaderCode, texWidth, texHeight, pixels);
+}
+
 void Main::run() {
-	initVulkan();
 	mainLoop();
 	cleanUp();
 }
 
-void Main::initVulkan() {
+void Main::initVulkan(std::vector<char> vertShaderCode, std::vector<char> fragShaderCode, int texWidth, int texHeight, stbi_uc* pixels) {
 	glfwInit();
 	// Because GLFW was originally designed to create an OpenGL context, we need to tell it to not create an OpenGL context with a subsequent call.
 	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
@@ -26,15 +33,14 @@ void Main::initVulkan() {
 	createImageViews();
 	createRenderPass();
 	createDescriptorSetLayout();
-	createGraphicsPipeline();
+	createGraphicsPipeline(vertShaderCode, fragShaderCode);
 	createCommandPool();
 	createColorResources();
 	createDepthResources();
 	createFramebuffers();
-	createTextureImage("models/objs/vikingRoom/viking_room.png");
+	createTextureImage(texWidth, texHeight, pixels);
 	createTextureImageView();
 	createTextureSampler();
-	loadModel("models/objs/vikingRoom/viking_room.obj");
 	createVertexBuffer();
 	createIndexBuffer();
 	createUniformBuffers();
@@ -558,10 +564,7 @@ void Main::createDescriptorSetLayout() {
 	}
 }
 
-void Main::createGraphicsPipeline() {
-	auto vertShaderCode = readFile("shaders/vert.spv");
-	auto fragShaderCode = readFile("shaders/frag.spv");
-
+void Main::createGraphicsPipeline(std::vector<char>vertShaderCode, std::vector<char>fragShaderCode) {
 	VkShaderModule vertShaderModule = createShaderModule(vertShaderCode);
 	VkShaderModule fragShaderModule = createShaderModule(fragShaderCode);
 
@@ -1212,15 +1215,7 @@ void Main::createDescriptorPool() {
 	}
 }
 
-void Main::createTextureImage(const std::string& imagePath) {
-	if (!std::filesystem::exists(imagePath)) {
-		throw std::runtime_error("The image doesn't exist in the relative path: " + imagePath);
-	}
-
-	const Image image = loadImage(imagePath);
-	const int texWidth = image.width;
-	const int texHeight = image.height;
-	stbi_uc* pixels = image.pixels;
+void Main::createTextureImage(int texWidth, int texHeight, stbi_uc* pixels) {
 	VkDeviceSize imageSize = texWidth * texHeight * 4;
 	mipLevels = static_cast<uint32_t>(std::floor(std::log2(std::max(texWidth, texHeight)))) + 1;
 
@@ -1233,7 +1228,7 @@ void Main::createTextureImage(const std::string& imagePath) {
 	memcpy(data, pixels, static_cast<size_t>(imageSize));
 	vkUnmapMemory(device, stagingBufferMemory);
 
-	stbi_image_free(pixels);
+	//stbi_image_free(pixels);
 
 	createImage(texWidth, texHeight, mipLevels, VK_SAMPLE_COUNT_1_BIT, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, textureImage, textureImageMemory);
 	transitionImageLayout(textureImage, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, mipLevels);
@@ -1490,41 +1485,6 @@ bool Main::hasStencilComponent(VkFormat format) {
 	return format == VK_FORMAT_D32_SFLOAT_S8_UINT || format == VK_FORMAT_D24_UNORM_S8_UINT;
 }
 
-void Main::loadModel(const std::string& modelPath) {
-	const ObjModel model = loadObj(modelPath);
-	const auto& attrib = model.attrib;
-	const auto& shapes = model.shapes;
-
-	std::unordered_map<Vertex, uint32_t> uniqueVertices{};
-	for (const auto& shape : shapes) {
-		for (const auto& index : shape.mesh.indices) {
-			Vertex vertex{};
-
-			vertex.pos = {
-				attrib.vertices[3 * index.vertex_index + 0],
-				attrib.vertices[3 * index.vertex_index + 1],
-				attrib.vertices[3 * index.vertex_index + 2]
-			};
-
-			// The OBJ format assumes a coordinate system where a vertical coordinate of 0 means the bottom of the image, 
-			// however we've uploaded our image into Vulkan in a top to bottom orientation where 0 means the top of the image.
-			vertex.texCoord = {
-				attrib.texcoords[2 * index.texcoord_index + 0],
-				1.0f - attrib.texcoords[2 * index.texcoord_index + 1]
-			};
-
-			vertex.color = { 1.0f, 1.0f, 1.0f };
-
-			if (uniqueVertices.count(vertex) == 0) {
-				uniqueVertices[vertex] = static_cast<uint32_t>(vertices.size());
-				vertices.push_back(vertex);
-			}
-
-			indices.push_back(uniqueVertices[vertex]);
-		}
-	}
-}
-
 // TODO: It should be noted that it is uncommon in practice to generate the mipmap levels at runtime anyway. 
 // Usually they are pregenerated and stored in the texture file alongside the base level to improve loading speed.
 void Main::generateMipmaps(VkImage image, VkFormat imageFormat, int32_t texWidth, int32_t texHeight, uint32_t mipLevels) {
@@ -1638,34 +1598,4 @@ void Main::createColorResources() {
 
 	createImage(swapChainExtent.width, swapChainExtent.height, 1, msaaSamples, colorFormat, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, colorImage, colorImageMemory);
 	colorImageView = createImageView(colorImage, colorFormat, VK_IMAGE_ASPECT_COLOR_BIT, 1);
-}
-
-int main() {
-	try {
-		std::string vertShaderCode = readShaderFile("shaders/main.vert");
-		std::vector<uint32_t> vertSPIRV = compileShaderToSPV(vertShaderCode, shaderc_glsl_vertex_shader);
-		writeSPVToFile(vertSPIRV, "shaders/vert.spv");
-		std::cout << "Vertex shader compiled successfully.\n";
-
-		std::string fragShaderCode = readShaderFile("shaders/main.frag");
-		std::vector<uint32_t> fragSPIRV = compileShaderToSPV(fragShaderCode, shaderc_glsl_fragment_shader);
-		writeSPVToFile(fragSPIRV, "shaders/frag.spv");
-		std::cout << "Fragment shader compiled successfully.\n";
-
-	}
-	catch (const std::exception& e) {
-		throw std::runtime_error(e.what());
-	}
-
-	Main app;
-
-	try {
-		app.run();
-	}
-	catch (const std::exception& e) {
-		std::cerr << e.what() << std::endl;
-		return EXIT_FAILURE;
-	}
-
-	return EXIT_SUCCESS;
 }

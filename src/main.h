@@ -1,3 +1,5 @@
+#pragma once
+
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 
@@ -20,7 +22,6 @@
 #include <chrono>
 #include <unordered_map>
 
-#include "utils.h"
 #include "uniformBuffer.h"
 #include "vertex.h"
 
@@ -29,6 +30,8 @@ const bool enableValidationLayers = false;
 #else
 const bool enableValidationLayers = true;
 #endif
+
+typedef unsigned char stbi_uc;
 
 const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 600;
@@ -73,6 +76,13 @@ struct SwapChainSupportDetails {
 
 class Main {
 public:
+	Main(std::vector<char> vertShaderCode, 
+		std::vector<char> fragShaderCode, 
+		std::vector<Vertex> vertices,
+		std::vector<uint32_t> indices,
+		int texWidth,
+		int texHeight,
+		stbi_uc* pixels);
 	void run();
 
 private:
@@ -134,7 +144,13 @@ private:
 	uint32_t currentFrame = 0;
 	bool framebufferResized = false;
 
-	void initVulkan();
+	void initVulkan(
+		std::vector<char> vertShaderCode, 
+		std::vector<char> fragShaderCode,
+		int texWidth, 
+		int texHeight, 
+		stbi_uc* pixels
+	);
 
 	void mainLoop();
 
@@ -186,7 +202,7 @@ private:
 
 	void createDescriptorSetLayout();
 
-	void createGraphicsPipeline();
+	void createGraphicsPipeline(std::vector<char>vertShaderCode, std::vector<char>fragShaderCode);
 
 	void createRenderPass();
 
@@ -230,7 +246,7 @@ private:
 
 	void createDescriptorSets();
 
-	void createTextureImage(const std::string& imagePath);
+	void createTextureImage(int texWidth, int texHeight, stbi_uc* pixels);
 
 	void createImage(uint32_t width, uint32_t height, uint32_t mipLevels, VkSampleCountFlagBits numSamples, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, VkImage& image, VkDeviceMemory& imageMemory);
 
@@ -251,8 +267,6 @@ private:
 	VkFormat findDepthFormat();
 
 	bool hasStencilComponent(VkFormat format);
-
-	void loadModel(const std::string& modelPath);
 
 	void generateMipmaps(VkImage image, VkFormat imageFormat, int32_t texWidth, int32_t texHeight, uint32_t mipLevels);
 

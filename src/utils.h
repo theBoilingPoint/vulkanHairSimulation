@@ -1,12 +1,17 @@
 #pragma once
 
+#define GLFW_INCLUDE_VULKAN
+#include <GLFW/glfw3.h>
+
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
 
 #define TINYOBJLOADER_IMPLEMENTATION
 #include <tiny_obj_loader.h>
 
+#include <iostream>
 #include <fstream>
+#include <tuple>
 #include <shaderc/shaderc.hpp>
 
 struct Image {
@@ -159,4 +164,43 @@ ObjModel loadObj(const std::string& modelPath) {
 	model.materials = materials;
 
 	return model;
+}
+
+std::tuple<std::vector<Vertex>, std::vector<uint32_t>> loadModel(const std::string& modelPath) {
+	const ObjModel model = loadObj(modelPath);
+	const auto& attrib = model.attrib;
+	const auto& shapes = model.shapes;
+
+	std::unordered_map<Vertex, uint32_t> uniqueVertices{};
+	std::vector<Vertex> vertices;
+	std::vector<uint32_t> indices;
+	for (const auto& shape : shapes) {
+		for (const auto& index : shape.mesh.indices) {
+			Vertex vertex{};
+
+			vertex.pos = {
+				attrib.vertices[3 * index.vertex_index + 0],
+				attrib.vertices[3 * index.vertex_index + 1],
+				attrib.vertices[3 * index.vertex_index + 2]
+			};
+
+			// The OBJ format assumes a coordinate system where a vertical coordinate of 0 means the bottom of the image, 
+			// however we've uploaded our image into Vulkan in a top to bottom orientation where 0 means the top of the image.
+			vertex.texCoord = {
+				attrib.texcoords[2 * index.texcoord_index + 0],
+				1.0f - attrib.texcoords[2 * index.texcoord_index + 1]
+			};
+
+			vertex.color = { 1.0f, 1.0f, 1.0f };
+
+			if (uniqueVertices.count(vertex) == 0) {
+				uniqueVertices[vertex] = static_cast<uint32_t>(vertices.size());
+				vertices.push_back(vertex);
+			}
+
+			indices.push_back(uniqueVertices[vertex]);
+		}
+	}
+
+	return std::make_tuple(std::move(vertices), std::move(indices));
 }
