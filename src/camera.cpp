@@ -5,20 +5,21 @@ Camera::Camera() {
 	aspect = 1.0f;
 	nearClip = 0.1f;
 	farClip = 10.0f;
-	zoomFactor = 1.0f;
 	position = glm::vec3(2.0f, 2.0f, 2.0f);
 	target = glm::vec3(0.0f, 0.0f, 0.0f);
 	forward = glm::normalize(target - position);
 	up = glm::vec3(0.0f, 0.0f, 1.0f);
 	right = glm::normalize(glm::cross(forward, up));
 
+	zoomFactor = 1.0f;
+	resized = false;
 	view = glm::lookAt(position, target, up);
 	proj = glm::perspective(fov, aspect, nearClip, farClip);
 }
 
 Camera::~Camera() {}
 
-void Camera::updateAspectRatio(float aspect) {
+void Camera::updateAspectRatio(const float aspect) {
 	this->aspect = aspect;
 	proj = glm::ortho(-aspect * zoomFactor, aspect * zoomFactor, -zoomFactor, zoomFactor, nearClip, farClip);
 }

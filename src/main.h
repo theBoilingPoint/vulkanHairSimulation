@@ -8,7 +8,6 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
-#include <filesystem>
 #include <iostream>
 #include <stdexcept>
 #include <cstdlib>
@@ -33,8 +32,6 @@ const bool enableValidationLayers = true;
 
 typedef unsigned char stbi_uc;
 
-const uint32_t WIDTH = 800;
-const uint32_t HEIGHT = 600;
 const int MAX_FRAMES_IN_FLIGHT = 2;
 
 const std::vector<const char*> validationLayers = {
@@ -76,7 +73,9 @@ struct SwapChainSupportDetails {
 
 class Main {
 public:
-	Main(std::vector<char> vertShaderCode, 
+	Main(GLFWwindow* window,
+		Camera* camera,
+		std::vector<char> vertShaderCode, 
 		std::vector<char> fragShaderCode, 
 		std::vector<Vertex> vertices,
 		std::vector<uint32_t> indices,
@@ -90,13 +89,13 @@ public:
 
 private:
 	GLFWwindow* window;
-	Camera camera;
+	Camera* camera;
 	VkInstance instance;
 	VkDebugUtilsMessengerEXT debugMessenger;
 	VkSurfaceKHR surface;
 	// This object will be implicitly destroyed when the VkInstance is destroyed, 
 	// so we won't need to do anything new in the cleanup function.
-	VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
+	VkPhysicalDevice physicalDevice;
 	VkDevice device;
 	// Device queues are implicitly cleaned up when the device is destroyed, so we don't need to do anything in cleanup.
 	VkQueue graphicsQueue;
@@ -125,7 +124,7 @@ private:
 	VkDeviceMemory textureImageMemory;
 	VkImageView textureImageView;
 	VkSampler textureSampler;
-	VkSampleCountFlagBits msaaSamples = VK_SAMPLE_COUNT_1_BIT;
+	VkSampleCountFlagBits msaaSamples;
 
 	std::vector<VkDescriptorSet> descriptorSets;
 	std::vector<VkBuffer> uniformBuffers;
@@ -145,24 +144,7 @@ private:
 	VkDeviceMemory colorImageMemory;
 	VkImageView colorImageView;
 
-	uint32_t currentFrame = 0;
-	bool framebufferResized = false;
-	bool isDragging = false;
-	double lastMouseX, lastMouseY;
-	double mouseX, mouseY;
-	unsigned int buttonPressed;
-
-	static void DestroyDebugUtilsMessengerEXT(VkInstance instance, VkDebugUtilsMessengerEXT debugMessenger, const VkAllocationCallbacks* pAllocator);
-
-	static void framebufferResizeCallback(GLFWwindow* window, int width, int height);
-
-	static void scrollCallback(GLFWwindow* window, double xoffset, double yoffset);
-
-	static void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods);
-
-	static void cursorPositionCallback(GLFWwindow* window, double xpos, double ypos);
-
-	void initWindow();
+	uint32_t currentFrame;
 
 	void initVulkan(
 		std::vector<char> vertShaderCode, 
@@ -174,6 +156,14 @@ private:
 
 	void cleanUp();
 
+	static void DestroyDebugUtilsMessengerEXT(VkInstance instance, VkDebugUtilsMessengerEXT debugMessenger, const VkAllocationCallbacks* pAllocator);
+
+	void setupDebugMessenger();
+
+	VkResult CreateDebugUtilsMessengerEXT(VkInstance instance, const VkDebugUtilsMessengerCreateInfoEXT* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkDebugUtilsMessengerEXT* pDebugMessenger);
+	
+	void populateDebugMessengerCreateInfo(VkDebugUtilsMessengerCreateInfoEXT& createInfo);
+	
 	void createInstance();
 
 	bool checkValidationLayerSupport();
@@ -183,12 +173,6 @@ private:
 	// This will also allow you to decide which kind of messages you would like to see, 
 	// because not all are necessarily (fatal) errors.
 	std::vector<const char*> getRequiredExtensions();
-
-	void setupDebugMessenger();
-
-	VkResult CreateDebugUtilsMessengerEXT(VkInstance instance, const VkDebugUtilsMessengerCreateInfoEXT* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkDebugUtilsMessengerEXT* pDebugMessenger);
-
-	void populateDebugMessengerCreateInfo(VkDebugUtilsMessengerCreateInfoEXT& createInfo);
 
 	void createSurface();
 	

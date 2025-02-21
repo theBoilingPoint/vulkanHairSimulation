@@ -19,13 +19,14 @@ private:
 
 public:
 	float zoomFactor;
+	bool resized;
 	glm::mat4 view;
 	glm::mat4 proj;
 
 	Camera();
 	~Camera();
 
-	void updateAspectRatio(float aspect);
+	void updateAspectRatio(const float aspect);
 
 	// Orthographic zoom.
 	void zoom();
