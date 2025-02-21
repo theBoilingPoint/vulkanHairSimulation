@@ -28,7 +28,7 @@ int main() {
 	stbi_image_free(image.pixels);
 
 	try {
-		app.run();
+		app.mainLoop();
 	}
 	catch (const std::exception& e) {
 		std::cerr << e.what() << std::endl;

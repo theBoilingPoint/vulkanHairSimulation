@@ -19,9 +19,9 @@
 #include <cstdint> 
 #include <limits> 
 #include <algorithm> 
-#include <chrono>
 #include <unordered_map>
 
+#include "camera.h"
 #include "uniformBuffer.h"
 #include "vertex.h"
 
@@ -83,10 +83,14 @@ public:
 		int texWidth,
 		int texHeight,
 		stbi_uc* pixels);
-	void run();
+
+	~Main();
+
+	void mainLoop();
 
 private:
 	GLFWwindow* window;
+	Camera camera;
 	VkInstance instance;
 	VkDebugUtilsMessengerEXT debugMessenger;
 	VkSurfaceKHR surface;
@@ -143,6 +147,22 @@ private:
 
 	uint32_t currentFrame = 0;
 	bool framebufferResized = false;
+	bool isDragging = false;
+	double lastMouseX, lastMouseY;
+	double mouseX, mouseY;
+	unsigned int buttonPressed;
+
+	static void DestroyDebugUtilsMessengerEXT(VkInstance instance, VkDebugUtilsMessengerEXT debugMessenger, const VkAllocationCallbacks* pAllocator);
+
+	static void framebufferResizeCallback(GLFWwindow* window, int width, int height);
+
+	static void scrollCallback(GLFWwindow* window, double xoffset, double yoffset);
+
+	static void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods);
+
+	static void cursorPositionCallback(GLFWwindow* window, double xpos, double ypos);
+
+	void initWindow();
 
 	void initVulkan(
 		std::vector<char> vertShaderCode, 
@@ -151,8 +171,6 @@ private:
 		int texHeight, 
 		stbi_uc* pixels
 	);
-
-	void mainLoop();
 
 	void cleanUp();
 
@@ -169,8 +187,6 @@ private:
 	void setupDebugMessenger();
 
 	VkResult CreateDebugUtilsMessengerEXT(VkInstance instance, const VkDebugUtilsMessengerCreateInfoEXT* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkDebugUtilsMessengerEXT* pDebugMessenger);
-
-	static void DestroyDebugUtilsMessengerEXT(VkInstance instance, VkDebugUtilsMessengerEXT debugMessenger, const VkAllocationCallbacks* pAllocator);
 
 	void populateDebugMessengerCreateInfo(VkDebugUtilsMessengerCreateInfoEXT& createInfo);
 
@@ -225,8 +241,6 @@ private:
 	void cleanupSwapChain();
 
 	void recreateSwapChain();
-
-	static void framebufferResizeCallback(GLFWwindow* window, int width, int height);
 
 	uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties);
 

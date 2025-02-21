@@ -5,16 +5,79 @@ Main::Main(std::vector<char> vertShaderCode, std::vector<char> fragShaderCode, s
 	std::vector<uint32_t> indices, int texWidth, int texHeight, stbi_uc* pixels) {
 	this->vertices = vertices;
 	this->indices = indices;
+	camera = Camera();
 
+	initWindow();
 	initVulkan(vertShaderCode, fragShaderCode, texWidth, texHeight, pixels);
 }
 
-void Main::run() {
-	mainLoop();
+Main::~Main() {
 	cleanUp();
 }
 
-void Main::initVulkan(std::vector<char> vertShaderCode, std::vector<char> fragShaderCode, int texWidth, int texHeight, stbi_uc* pixels) {
+void Main::scrollCallback(GLFWwindow* window, double xoffset, double yoffset) {
+	auto app = reinterpret_cast<Main*>(glfwGetWindowUserPointer(window));
+
+	float curZoomFactor = app->camera.zoomFactor;
+	if (yoffset > 0.f) {
+		curZoomFactor -= 0.1f;
+		
+	}
+	else {
+		curZoomFactor += 0.1f;
+	}
+	curZoomFactor = glm::clamp(curZoomFactor, 0.01f, 10.0f);
+	app->camera.zoomFactor = curZoomFactor;
+	app->camera.zoom();
+}
+
+void Main::mouseButtonCallback(GLFWwindow* window, int button, int action, int mods) {
+	auto app = reinterpret_cast<Main*>(glfwGetWindowUserPointer(window));
+
+	if (!(button == GLFW_MOUSE_BUTTON_LEFT || button == GLFW_MOUSE_BUTTON_RIGHT)) {
+		return;
+	}
+
+	app->buttonPressed = button;
+
+	if (action == GLFW_PRESS) {
+		app->isDragging = true;
+		glfwGetCursorPos(window, &app->lastMouseX, &app->lastMouseY);
+	}
+	else if (action == GLFW_RELEASE) {
+		app->isDragging = false;
+	}
+	
+}
+
+void Main::cursorPositionCallback(GLFWwindow* window, double xpos, double ypos) {
+	auto app = reinterpret_cast<Main*>(glfwGetWindowUserPointer(window));
+
+	if (!app->isDragging) {
+		return;
+	}
+
+	app->mouseX = xpos;
+	app->mouseY = ypos;
+
+	double deltaX = app->mouseX - app->lastMouseX;
+	double deltaY = app->mouseY - app->lastMouseY;
+
+	if (app->buttonPressed == GLFW_MOUSE_BUTTON_LEFT) {
+		glm::vec2 delta = glm::vec2(-deltaX, deltaY) * 0.005f;
+		app->camera.pan(delta);
+	}
+	else if (app->buttonPressed == GLFW_MOUSE_BUTTON_RIGHT) {
+		glm::vec2 radians = glm::radians(glm::vec2(deltaX, -deltaY) * 0.2f);
+		app->camera.rotate(radians);
+	}
+
+	app->lastMouseX = app->mouseX;
+	app->lastMouseY = app->mouseY;
+	
+}
+
+void Main::initWindow() {
 	glfwInit();
 	// Because GLFW was originally designed to create an OpenGL context, we need to tell it to not create an OpenGL context with a subsequent call.
 	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
@@ -23,13 +86,19 @@ void Main::initVulkan(std::vector<char> vertShaderCode, std::vector<char> fragSh
 	window = glfwCreateWindow(WIDTH, HEIGHT, "Vulkan", nullptr, nullptr);
 	glfwSetWindowUserPointer(window, this);
 	glfwSetFramebufferSizeCallback(window, framebufferResizeCallback);
+	glfwSetScrollCallback(window, scrollCallback);
+	glfwSetMouseButtonCallback(window, mouseButtonCallback);
+	glfwSetCursorPosCallback(window, cursorPositionCallback);
+}
 
+void Main::initVulkan(std::vector<char> vertShaderCode, std::vector<char> fragShaderCode, int texWidth, int texHeight, stbi_uc* pixels) {
 	createInstance();
 	setupDebugMessenger();
 	createSurface();
 	pickPhysicalDevice();
 	createLogicalDevice();
 	createSwapChain();
+	camera.updateAspectRatio((float)swapChainExtent.width / (float)swapChainExtent.height);
 	createImageViews();
 	createRenderPass();
 	createDescriptorSetLayout();
@@ -1070,6 +1139,7 @@ void Main::recreateSwapChain() {
 	createColorResources();
 	createDepthResources();
 	createFramebuffers();
+	camera.updateAspectRatio((float)swapChainExtent.width/ (float)swapChainExtent.height);
 }
 
 void Main::framebufferResizeCallback(GLFWwindow* window, int width, int height) {
@@ -1180,15 +1250,10 @@ void Main::createUniformBuffers() {
 }
 
 void Main::updateUniformBuffer(uint32_t currentImage) {
-	static auto startTime = std::chrono::high_resolution_clock::now();
-
-	auto currentTime = std::chrono::high_resolution_clock::now();
-	float time = std::chrono::duration<float, std::chrono::seconds::period>(currentTime - startTime).count();
-
 	UniformBufferObject ubo{};
-	ubo.model = glm::rotate(glm::mat4(1.0f), time * glm::radians(15.0f), glm::vec3(0.0f, 0.0f, 1.0f));
-	ubo.view = glm::lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
-	ubo.proj = glm::perspective(glm::radians(45.0f), swapChainExtent.width / (float)swapChainExtent.height, 0.1f, 10.0f);
+	ubo.model = glm::mat4(1.0f);
+	ubo.view = camera.view;
+	ubo.proj = camera.proj;
 	// GLM was originally designed for OpenGL, where the Y coordinate of the clip coordinates is inverted. 
 	// The easiest way to compensate for that is to flip the sign on the scaling factor of the Y axis in the projection matrix. 
 	// If you don't do this, then the image will be rendered upside down.
