@@ -6,7 +6,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 
 class Camera {
-private:
+public:
 	float fov;
 	float aspect;
 	float nearClip;
@@ -17,7 +17,6 @@ private:
 	glm::vec3 up;
 	glm::vec3 right;
 
-public:
 	float zoomFactor;
 	bool resized;
 	glm::mat4 view;

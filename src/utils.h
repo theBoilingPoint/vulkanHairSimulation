@@ -3,11 +3,16 @@
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 
-#define STB_IMAGE_IMPLEMENTATION
-#include <stb_image.h>
-
 #define TINYOBJLOADER_IMPLEMENTATION
 #include <tiny_obj_loader.h>
+
+// Place this above STB_IMAGE_IMPLEMENTATION
+#define TINYGLTF_IMPLEMENTATION 
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include "tiny_gltf.h"
+
+#define STB_IMAGE_IMPLEMENTATION
+#include <stb_image.h>
 
 #include <iostream>
 #include <fstream>
@@ -20,12 +25,6 @@ struct Image {
 	int	height;
 	int	channels;
 	stbi_uc* pixels;
-};
-
-struct ObjModel {
-	tinyobj::attrib_t attrib;
-	std::vector<tinyobj::shape_t> shapes;
-	std::vector<tinyobj::material_t> materials;
 };
 
 // Function to read a shader source file
@@ -51,6 +50,7 @@ std::vector<uint32_t> compileShaderToSPV(const std::string& shaderCode, shaderc_
 
 	// Check for compilation errors
 	if (module.GetCompilationStatus() != shaderc_compilation_status_success) {
+		std::cerr << "Shader compilation failed:\n" << module.GetErrorMessage() << std::endl;
 		throw std::runtime_error("Shader compilation error: " + std::string(module.GetErrorMessage()));
 	}
 
@@ -106,11 +106,7 @@ Image loadImage(const std::string& imagePath) {
 	return image;
 }
 
-ObjModel loadObj(const std::string& modelPath) {
-	if (!std::filesystem::exists(modelPath)) {
-		throw std::runtime_error("The .obj file doesn't exist in the relative path: " + modelPath);
-	}
-
+std::tuple<std::vector<Vertex>, std::vector<uint32_t>> loadObj(const std::string& modelPath) {
 	tinyobj::ObjReader reader;
 
 	if (!reader.ParseFromFile(modelPath)) {
@@ -159,19 +155,6 @@ ObjModel loadObj(const std::string& modelPath) {
 		}
 	}
 
-	ObjModel model;
-	model.attrib = attrib;
-	model.shapes = shapes;
-	model.materials = materials;
-
-	return model;
-}
-
-std::tuple<std::vector<Vertex>, std::vector<uint32_t>> loadModel(const std::string& modelPath) {
-	const ObjModel model = loadObj(modelPath);
-	const auto& attrib = model.attrib;
-	const auto& shapes = model.shapes;
-
 	std::unordered_map<Vertex, uint32_t> uniqueVertices{};
 	std::vector<Vertex> vertices;
 	std::vector<uint32_t> indices;
@@ -183,6 +166,12 @@ std::tuple<std::vector<Vertex>, std::vector<uint32_t>> loadModel(const std::stri
 				attrib.vertices[3 * index.vertex_index + 0],
 				attrib.vertices[3 * index.vertex_index + 1],
 				attrib.vertices[3 * index.vertex_index + 2]
+			};
+
+			vertex.normal = {
+				attrib.normals[3 * index.normal_index + 0],
+				attrib.normals[3 * index.normal_index + 1],
+				attrib.normals[3 * index.normal_index + 2]
 			};
 
 			// The OBJ format assumes a coordinate system where a vertical coordinate of 0 means the bottom of the image, 
@@ -204,4 +193,47 @@ std::tuple<std::vector<Vertex>, std::vector<uint32_t>> loadModel(const std::stri
 	}
 
 	return std::make_tuple(std::move(vertices), std::move(indices));
+}
+
+std::tuple<std::vector<Vertex>, std::vector<uint32_t>> loadGltf(const std::string& modelPath) {
+	tinygltf::Model model;
+	tinygltf::TinyGLTF loader;
+	std::string err;
+	std::string warn;
+
+	bool ret = false;
+	if (modelPath.find(".glb") != std::string::npos) {
+		ret = loader.LoadBinaryFromFile(&model, &err, &warn, modelPath);
+	}
+	else {
+		ret = loader.LoadASCIIFromFile(&model, &err, &warn, modelPath);
+	}
+
+	if (!warn.empty()) {
+		std::cout << "Warn: " << warn << std::endl;
+	}
+	if (!err.empty()) {
+		std::cout << "Err: " << err << std::endl;
+	}
+	if (!ret) {
+		throw std::runtime_error("Failed to parse glTF file: " + modelPath);
+	}
+	std::cout << "Loaded glTF file: " << modelPath << std::endl;
+
+	return std::tuple<std::vector<Vertex>, std::vector<uint32_t>>();
+}
+
+std::tuple<std::vector<Vertex>, std::vector<uint32_t>> loadModel(const std::string& modelPath) {
+	if (!std::filesystem::exists(modelPath)) {
+		throw std::runtime_error("The file doesn't exist in the relative path: " + modelPath);
+	}
+
+	if (modelPath.find(".obj") != std::string::npos) {
+		return loadObj(modelPath);
+	}
+	else if (modelPath.find(".gltf") != std::string::npos || modelPath.find(".glb") != std::string::npos) {
+		return loadGltf(modelPath);
+	}
+
+	return std::tuple<std::vector<Vertex>, std::vector<uint32_t>>();
 }

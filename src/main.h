@@ -30,6 +30,8 @@ const bool enableValidationLayers = false;
 const bool enableValidationLayers = true;
 #endif
 
+#define ALPHA_BLENDING 1;
+
 typedef unsigned char stbi_uc;
 
 const int MAX_FRAMES_IN_FLIGHT = 2;

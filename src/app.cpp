@@ -37,10 +37,10 @@ void App::scrollCallback(GLFWwindow* window, double xoffset, double yoffset) {
 
 	float curZoomFactor = app->camera->zoomFactor;
 	if (yoffset > 0.f) {
-		curZoomFactor -= 0.1f;
+		curZoomFactor -= 0.03f;
 	}
 	else {
-		curZoomFactor += 0.1f;
+		curZoomFactor += 0.03f;
 	}
 	curZoomFactor = glm::clamp(curZoomFactor, 0.01f, 10.0f);
 	app->camera->zoomFactor = curZoomFactor;
@@ -80,11 +80,11 @@ void App::cursorPositionCallback(GLFWwindow* window, double xpos, double ypos) {
 	double deltaY = app->mouseY - app->lastMouseY;
 
 	if (app->buttonPressed == GLFW_MOUSE_BUTTON_LEFT) {
-		glm::vec2 delta = glm::vec2(-deltaX, deltaY) * 0.005f;
+		glm::vec2 delta = glm::vec2(-deltaX, deltaY) * 0.001f;
 		app->camera->pan(delta);
 	}
 	else if (app->buttonPressed == GLFW_MOUSE_BUTTON_RIGHT) {
-		glm::vec2 radians = glm::radians(glm::vec2(deltaX, -deltaY) * 0.2f);
+		glm::vec2 radians = glm::radians(glm::vec2(-deltaX, -deltaY) * 0.2f);
 		app->camera->rotate(radians);
 	}
 
@@ -94,26 +94,20 @@ void App::cursorPositionCallback(GLFWwindow* window, double xpos, double ypos) {
 }
 
 int main() {
-	try {
-		std::string vertShaderCode = readShaderFile("shaders/main.vert");
-		std::vector<uint32_t> vertSPIRV = compileShaderToSPV(vertShaderCode, shaderc_glsl_vertex_shader);
-		writeSPVToFile(vertSPIRV, "shaders/vert.spv");
-		std::cout << "Vertex shader compiled successfully.\n";
+	std::string vertShaderCodeRaw = readShaderFile("shaders/main.vert");
+	std::vector<uint32_t> vertSPIRV = compileShaderToSPV(vertShaderCodeRaw, shaderc_glsl_vertex_shader);
+	writeSPVToFile(vertSPIRV, "shaders/vert.spv");
+	std::cout << "Vertex shader compiled successfully.\n";
 
-		std::string fragShaderCode = readShaderFile("shaders/main.frag");
-		std::vector<uint32_t> fragSPIRV = compileShaderToSPV(fragShaderCode, shaderc_glsl_fragment_shader);
-		writeSPVToFile(fragSPIRV, "shaders/frag.spv");
-		std::cout << "Fragment shader compiled successfully.\n";
-
-	}
-	catch (const std::exception& e) {
-		throw std::runtime_error(e.what());
-	}
+	std::string fragShaderCodeRaw = readShaderFile("shaders/main.frag");
+	std::vector<uint32_t> fragSPIRV = compileShaderToSPV(fragShaderCodeRaw, shaderc_glsl_fragment_shader);
+	writeSPVToFile(fragSPIRV, "shaders/frag.spv");
+	std::cout << "Fragment shader compiled successfully.\n";
 
 	std::vector<char> vertShaderCode = readFile("shaders/vert.spv");
 	std::vector<char> fragShaderCode = readFile("shaders/frag.spv");
-	auto [vertices, indices] = loadModel("models/objs/vikingRoom/viking_room.obj");
-	const Image image = loadImage("models/objs/vikingRoom/viking_room.png");
+	auto [vertices, indices] = loadModel("models/obj/ponytail/processed.obj");
+	const Image image = loadImage("textures/ponytail/T_Hair_Random Color.png");
 
 	App app;
 	Main vulkanPipeline(app.window, app.camera, vertShaderCode, fragShaderCode, vertices, indices, image.width, image.height, image.pixels);

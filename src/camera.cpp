@@ -36,13 +36,16 @@ void Camera::pan(const glm::vec2 delta) {
 }
 
 void Camera::rotate(const glm::vec2 radians) {
-	glm::mat4 rotation = glm::rotate(glm::mat4(1.0f), radians.x, glm::vec3(0.0f, 0.0f, 1.0f));
-	rotation = glm::rotate(rotation, radians.y, right);
- 
-	forward = glm::vec3(rotation * glm::vec4(forward, 0.0f));
-	up = glm::vec3(rotation * glm::vec4(up, 0.0f));
-	right = glm::vec3(rotation * glm::vec4(right, 0.0f));
+	glm::mat4 rotationMatrix = glm::rotate(glm::mat4(1.0f), radians.x, glm::vec3(0.0f, 0.0f, 1.0f));
+	position = glm::vec3(rotationMatrix * glm::vec4(position - target, 1.0f)) + target;
+	forward = glm::normalize(glm::vec3(rotationMatrix * glm::vec4(forward, 0.0f)));
+	up = glm::normalize(glm::vec3(rotationMatrix * glm::vec4(up, 0.0f)));
+	right = glm::normalize(glm::cross(forward, up));
+	
+	rotationMatrix = glm::rotate(glm::mat4(1.0f), radians.y, right);
+	position = glm::vec3(rotationMatrix * glm::vec4(position - target, 1.0f)) + target;
+	forward = glm::normalize(glm::vec3(rotationMatrix * glm::vec4(forward, 0.0f)));
+	up = glm::normalize(glm::vec3(rotationMatrix * glm::vec4(up, 0.0f)));
 
-	position = target - forward;
 	view = glm::lookAt(position, target, up);
 }
