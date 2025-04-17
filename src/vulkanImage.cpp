@@ -17,43 +17,39 @@ VulkanImage::VulkanImage() :
 	currentLayout(VK_IMAGE_LAYOUT_UNDEFINED),
 	currentAccesses(0) {}
 
-VulkanImage::VulkanImage(VkDevice* device, uint32_t width, uint32_t height, uint32_t mipLevels, VkSampleCountFlagBits samples, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkImageAspectFlags aspectFlags) {
-	this->device = device;
-	this->width = width;
-	this->height = height;
-	this->mipLevels = mipLevels;
-	this->samples = samples;
-	this->format = format;
-	this->tiling = tiling;
-	this->usage = usage;
-	this->aspectFlags = aspectFlags;
+VulkanImage::VulkanImage(VkDevice* device, uint32_t width, uint32_t height, uint32_t mipLevels, VkSampleCountFlagBits samples, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkImageAspectFlags aspectFlags) :
+	device(device),
+	width(width),
+	height(height),
+	mipLevels(mipLevels),
+	layers(1),
+	tiling(tiling),
+	usage(usage),
+	aspectFlags(aspectFlags),
+	samples(samples),
+	format(format),
+	image(nullptr),
+	view(nullptr),
+	memory(nullptr),
+	currentLayout(VK_IMAGE_LAYOUT_UNDEFINED),
+	currentAccesses(0) {}
 
-	currentLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-	currentAccesses = 0;
-	layers = 1;
-	image = nullptr;
-	view = nullptr;
-	memory = nullptr;
-}
-
-VulkanImage::VulkanImage(VkDevice* device, VkImage swapChainImage, VkFormat swapchainFormat, VkImageAspectFlags swapchainAspectFlags, uint32_t swapchainMipLevels) {
-	this->device = device;
-	this->image = swapChainImage;
-	this->format = swapchainFormat;
-	this->aspectFlags = swapchainAspectFlags;
-	this->mipLevels = swapchainMipLevels;
-
-	width = -1;
-	height = -1;
-	currentLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-	currentAccesses = 0;
-	layers = 1;
-	view = nullptr;
-	memory = nullptr;
-	samples = VK_SAMPLE_COUNT_1_BIT;
-	tiling = VK_IMAGE_TILING_OPTIMAL;
-	usage = 0;
-}
+VulkanImage::VulkanImage(VkDevice* device, VkImage swapChainImage, VkFormat swapchainFormat, VkImageAspectFlags swapchainAspectFlags, uint32_t swapchainMipLevels):
+	device(device),
+	width(0),
+	height(0),
+	mipLevels(swapchainMipLevels),
+	layers(1),
+	tiling(VK_IMAGE_TILING_OPTIMAL),
+	usage(0),
+	aspectFlags(swapchainAspectFlags),
+	samples(VK_SAMPLE_COUNT_1_BIT),
+	format(swapchainFormat),
+	image(swapChainImage),
+	view(nullptr),
+	memory(nullptr),
+	currentLayout(VK_IMAGE_LAYOUT_UNDEFINED),
+	currentAccesses(0) {}
 
 VulkanImage::~VulkanImage() {}
 
@@ -118,50 +114,109 @@ void VulkanImage::createView() {
 	}
 }
 
-void VulkanImage::transitionLayout(VkCommandBuffer commandBuffer, VkImageLayout newLayout) {
-	VkImageMemoryBarrier barrier{};
-	barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-	barrier.oldLayout = currentLayout;
-	barrier.newLayout = newLayout;
-	barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-	barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-	barrier.image = image;
-	barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-	barrier.subresourceRange.baseMipLevel = 0;
-	barrier.subresourceRange.levelCount = mipLevels;
-	barrier.subresourceRange.baseArrayLayer = 0;
-	barrier.subresourceRange.layerCount = 1;
-
-	VkPipelineStageFlags sourceStage;
-	VkPipelineStageFlags destinationStage;
-
-	if (currentLayout == VK_IMAGE_LAYOUT_UNDEFINED && newLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL) {
-		barrier.srcAccessMask = 0;
-		barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-
-		sourceStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
-		destinationStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+void VulkanImage::transitionLayout(VkCommandBuffer commandBuffer, VkImageLayout newLayout, VkAccessFlags newtAccesses) {
+	VkImageAspectFlags aspectMask = 0;
+	if (newLayout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
+	{
+		aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+		if (format == VK_FORMAT_D32_SFLOAT_S8_UINT || format == VK_FORMAT_D24_UNORM_S8_UINT)
+		{
+			aspectMask |= VK_IMAGE_ASPECT_STENCIL_BIT;
+		}
 	}
-	else if (currentLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL && newLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
-		barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-		barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-
-		sourceStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
-		destinationStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
-	}
-	else {
-		throw std::invalid_argument("unsupported layout transition!");
+	else
+	{
+		aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
 	}
 
-	vkCmdPipelineBarrier(
-		commandBuffer,
-		sourceStage, destinationStage,
-		0,
-		0, nullptr,
-		0, nullptr,
-		1, &barrier
-	);
-	
+	cmdImageTransition(commandBuffer, image, aspectMask, currentAccesses, newtAccesses, currentLayout, newLayout);
+
+	// Update current layout, stages, and accesses
 	currentLayout = newLayout;
-	currentAccesses = barrier.dstAccessMask;
+	currentAccesses = newtAccesses;
+}
+
+void VulkanImage::cmdImageTransition(VkCommandBuffer cmd, VkImage img, VkImageAspectFlags aspects, VkAccessFlags src, VkAccessFlags dst, VkImageLayout oldLayout, VkImageLayout newLayout) {
+	VkPipelineStageFlags srcPipe = makeAccessMaskPipelineStageFlags(src);
+	VkPipelineStageFlags dstPipe = makeAccessMaskPipelineStageFlags(dst);
+	VkImageMemoryBarrier barrier = makeImageMemoryBarrier(img, src, dst, oldLayout, newLayout, aspects);
+
+	vkCmdPipelineBarrier(cmd, srcPipe, dstPipe, VK_FALSE, 0, VK_NULL_HANDLE, 0, VK_NULL_HANDLE, 1, &barrier);
+}
+
+uint32_t VulkanImage::makeAccessMaskPipelineStageFlags(uint32_t accessMask, VkPipelineStageFlags supportedShaderBits) {
+	static const uint32_t accessPipes[] = {
+	  VK_ACCESS_INDIRECT_COMMAND_READ_BIT,
+	  VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
+	  VK_ACCESS_INDEX_READ_BIT,
+	  VK_PIPELINE_STAGE_VERTEX_INPUT_BIT,
+	  VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT,
+	  VK_PIPELINE_STAGE_VERTEX_INPUT_BIT,
+	  VK_ACCESS_UNIFORM_READ_BIT,
+	  supportedShaderBits,
+	  VK_ACCESS_INPUT_ATTACHMENT_READ_BIT,
+	  VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+	  VK_ACCESS_SHADER_READ_BIT,
+	  //supportedShaderBits,
+	  VK_ACCESS_SHADER_WRITE_BIT,
+	  //supportedShaderBits,
+	  VK_ACCESS_COLOR_ATTACHMENT_READ_BIT,
+	  VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+	  VK_ACCESS_COLOR_ATTACHMENT_READ_NONCOHERENT_BIT_EXT,
+	  VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+	  VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+	  VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+	  VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT,
+	  VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
+	  VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+	  VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
+	  VK_ACCESS_TRANSFER_READ_BIT,
+	  VK_PIPELINE_STAGE_TRANSFER_BIT,
+	  VK_ACCESS_TRANSFER_WRITE_BIT,
+	  VK_PIPELINE_STAGE_TRANSFER_BIT,
+	  VK_ACCESS_HOST_READ_BIT,
+	  VK_PIPELINE_STAGE_HOST_BIT,
+	  VK_ACCESS_HOST_WRITE_BIT,
+	  VK_PIPELINE_STAGE_HOST_BIT,
+	  VK_ACCESS_MEMORY_READ_BIT,
+	  0,
+	  VK_ACCESS_MEMORY_WRITE_BIT,
+	  0,
+	};
+
+	if (!accessMask)
+	{
+		return VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+	}
+
+	uint32_t pipes = 0;
+
+	for (uint32_t i = 0; i < ARRAY_SIZE(accessPipes); i += 2)
+	{
+		if (accessPipes[i] & accessMask)
+		{
+			pipes |= accessPipes[i + 1];
+		}
+	}
+
+	assert(pipes != 0);
+
+	return pipes;
+}
+
+VkImageMemoryBarrier VulkanImage::makeImageMemoryBarrier(VkImage img, VkAccessFlags srcAccess, VkAccessFlags dstAccess, VkImageLayout oldLayout, VkImageLayout newLayout, VkImageAspectFlags aspectMask) {
+	VkImageMemoryBarrier barrier = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
+	barrier.srcAccessMask = srcAccess;
+	barrier.dstAccessMask = dstAccess;
+	barrier.oldLayout = oldLayout;
+	barrier.newLayout = newLayout;
+	barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	barrier.image = img;
+	barrier.subresourceRange = { 0 };
+	barrier.subresourceRange.aspectMask = aspectMask;
+	barrier.subresourceRange.levelCount = VK_REMAINING_MIP_LEVELS;
+	barrier.subresourceRange.layerCount = VK_REMAINING_ARRAY_LAYERS;
+
+	return barrier;
 }

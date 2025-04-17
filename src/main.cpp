@@ -24,6 +24,7 @@ void Main::initVulkan(std::vector<char> vertShaderCode, std::vector<char> fragSh
 	createSurface();
 	pickPhysicalDevice();
 	createLogicalDevice();
+	createCommandPool();
 
 	// Create image views for the swapchain and offscreen
 	createSwapChain();
@@ -34,7 +35,6 @@ void Main::initVulkan(std::vector<char> vertShaderCode, std::vector<char> fragSh
 	createOpaqueObjectsRenderPass();
 	createDescriptorSetLayout();
 	createGraphicsPipeline(vertShaderCode, fragShaderCode);
-	createCommandPool();
 
 	createFramebuffers();
 	createTextureImage(texWidth, texHeight, pixels);
@@ -807,7 +807,7 @@ void Main::createOpaqueObjectsRenderPass() {
 	std::array<VkAttachmentDescription, 2> attachments = {};  // Color attachment, depth attachment
 
 	// Color attachment
-	attachments[0].format = offlineColorImage.format;
+	attachments[0].format = offscreenColorImage.format;
 	attachments[0].samples = msaaSamples;
 	attachments[0].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
 	attachments[0].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
@@ -866,7 +866,7 @@ void Main::createOpaqueObjectsRenderPass() {
 }
 
 void Main::createOpaqueObjectsFramebuffer() {
-	std::array<VkImageView, 2> attachments = { offlineColorImage.view, depthImage.view };
+	std::array<VkImageView, 2> attachments = { offscreenColorImage.view, depthImage.view };
 	VkFramebufferCreateInfo framebufferInfo = { VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO };
 	framebufferInfo.renderPass = opaqueObjectsRenderPass;
 	framebufferInfo.attachmentCount = static_cast<uint32_t>(attachments.size());
@@ -1113,7 +1113,7 @@ void Main::drawFrame() {
 void Main::cleanupSwapChain() {
 	colorImage.destroy();
 	depthImage.destroy();
-	offlineColorImage.destroy();
+	offscreenColorImage.destroy();
 	weightedColorImage.destroy();
 	weightedRevealImage.destroy();
 
@@ -1284,6 +1284,12 @@ void Main::createDescriptorPool() {
 	}
 }
 
+void Main::transitionImage(VulkanImage image, VkImageLayout newLayout, VkAccessFlags newtAccesses) {
+	VkCommandBuffer commandBuffer = beginSingleTimeCommands();
+	image.transitionLayout(commandBuffer, newLayout, newtAccesses);
+	endSingleTimeCommands(commandBuffer);
+}
+
 void Main::createTextureImage(int texWidth, int texHeight, stbi_uc* pixels) {
 	VkDeviceSize imageSize = texWidth * texHeight * 4;
 	mipLevels = static_cast<uint32_t>(std::floor(std::log2(std::max(texWidth, texHeight)))) + 1;
@@ -1314,9 +1320,7 @@ void Main::createTextureImage(int texWidth, int texHeight, stbi_uc* pixels) {
 	vkGetImageMemoryRequirements(device, textureImage.image, &memRequirements);
 	textureImage.bindMemory(memRequirements.size, findMemoryType(memRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT));
 
-	VkCommandBuffer commandBuffer = beginSingleTimeCommands();
-	textureImage.transitionLayout(commandBuffer, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-	endSingleTimeCommands(commandBuffer);
+	transitionImage(textureImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_ACCESS_TRANSFER_WRITE_BIT);
 
 	copyBufferToImage(stagingBuffer, textureImage.image, static_cast<uint32_t>(texWidth), static_cast<uint32_t>(texHeight));
 	generateMipmaps(textureImage.image, VK_FORMAT_R8G8B8A8_SRGB, texWidth, texHeight, mipLevels);
@@ -1591,8 +1595,16 @@ void Main::createImageResource(VulkanImage *image, VkFormat format, VkImageUsage
 
 void Main::createImageResources() {
 	createImageResource(&colorImage, swapChainImageFormat, VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
+
 	createImageResource(&depthImage, findDepthFormat(), VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, VK_IMAGE_ASPECT_DEPTH_BIT);
-	createImageResource(&offlineColorImage, VK_FORMAT_B8G8R8A8_SRGB, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
+	transitionImage(depthImage, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT);
+
+	createImageResource(&offscreenColorImage, VK_FORMAT_B8G8R8A8_SRGB, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
+	transitionImage(offscreenColorImage, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT);
+	
 	createImageResource(&weightedColorImage, VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
+	transitionImage(weightedColorImage, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT);
+
 	createImageResource(&weightedRevealImage, VK_FORMAT_R16_SFLOAT, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
+	transitionImage(weightedRevealImage, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT);
 }

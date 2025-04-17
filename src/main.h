@@ -140,7 +140,7 @@ private:
 	VulkanImage textureImage;
 	VulkanImage colorImage;
 	VulkanImage depthImage;
-	VulkanImage offlineColorImage;
+	VulkanImage offscreenColorImage;
 	VulkanImage weightedColorImage;
 	VulkanImage weightedRevealImage;
 
@@ -271,6 +271,8 @@ private:
 	void createImageResource(VulkanImage* image, VkFormat format, VkImageUsageFlags usage, VkImageAspectFlags aspectFlags);
 
 	void createImageResources();
+
+	void transitionImage(VulkanImage image, VkImageLayout newLayout, VkAccessFlags newtAccesses);
 
 	void createOpaqueObjectsFramebuffer();
 
