@@ -106,8 +106,8 @@ int main() {
 
 	std::vector<char> vertShaderCode = readFile("shaders/vert.spv");
 	std::vector<char> fragShaderCode = readFile("shaders/frag.spv");
-	auto [vertices, indices] = loadModel("models/obj/ponytail/processed.obj");
-	const Image image = loadImage("textures/ponytail/T_Hair_Random Color.png");
+	auto [vertices, indices] = loadModel("models/obj/ponytail/character.obj");
+	const Image image = loadImage("textures/ponytail/Head BaseColor.png");
 
 	App app;
 	Main vulkanPipeline(app.window, app.camera, vertShaderCode, fragShaderCode, vertices, indices, image.width, image.height, image.pixels);

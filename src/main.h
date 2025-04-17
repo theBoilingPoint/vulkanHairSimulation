@@ -23,14 +23,13 @@
 #include "camera.h"
 #include "uniformBuffer.h"
 #include "vertex.h"
+#include "vulkanImage.h"
 
 #ifdef NDEBUG
 const bool enableValidationLayers = false;
 #else
 const bool enableValidationLayers = true;
 #endif
-
-#define ALPHA_BLENDING 1;
 
 typedef unsigned char stbi_uc;
 
@@ -103,15 +102,11 @@ private:
 	VkQueue graphicsQueue;
 	VkQueue presentQueue;
 	VkSwapchainKHR swapChain;
-	// The images were created by the implementation for the swap chain and they will be automatically cleaned up once the swap chain has been destroyed
-	std::vector<VkImage> swapChainImages;
-	VkFormat swapChainImageFormat;
-	VkExtent2D swapChainExtent;
-	std::vector<VkImageView> swapChainImageViews;
+
 	VkRenderPass renderPass;
 	VkDescriptorSetLayout descriptorSetLayout;
-	VkPipelineLayout pipelineLayout;
-	VkPipeline graphicsPipeline;
+	VkPipelineLayout opaqueObjectsPipelineLayout;
+	VkPipeline opaqueObjectsPipeline;
 	std::vector<VkFramebuffer> swapChainFramebuffers;
 	VkCommandPool commandPool;
 	std::vector<Vertex> vertices;
@@ -121,12 +116,6 @@ private:
 	VkBuffer indexBuffer;
 	VkDeviceMemory indexBufferMemory;
 	VkDescriptorPool descriptorPool;
-	uint32_t mipLevels;
-	VkImage textureImage;
-	VkDeviceMemory textureImageMemory;
-	VkImageView textureImageView;
-	VkSampler textureSampler;
-	VkSampleCountFlagBits msaaSamples;
 
 	std::vector<VkDescriptorSet> descriptorSets;
 	std::vector<VkBuffer> uniformBuffers;
@@ -138,13 +127,29 @@ private:
 	std::vector<VkSemaphore> renderFinishedSemaphores;
 	std::vector<VkFence> inFlightFences;
 
-	VkImage depthImage;
-	VkDeviceMemory depthImageMemory;
-	VkImageView depthImageView;
+	// The images were created by the implementation for the swap chain and they will be automatically cleaned up once the swap chain has been destroyed
+	std::vector<VkImage> swapChainImages;
+	VkFormat swapChainImageFormat;
+	VkExtent2D swapChainExtent;
 
-	VkImage colorImage;
-	VkDeviceMemory colorImageMemory;
-	VkImageView colorImageView;
+	uint32_t mipLevels;
+	VkSampler textureSampler;
+	VkSampleCountFlagBits msaaSamples;
+
+	std::vector<VulkanImage> swapChainImageViews;
+	VulkanImage textureImage;
+	VulkanImage colorImage;
+	VulkanImage depthImage;
+	VulkanImage offlineColorImage;
+	VulkanImage weightedColorImage;
+	VulkanImage weightedRevealImage;
+
+	// Buffer that I will render my opaque objects to
+	VkFramebuffer opaqueObjectsFramebuffer;
+	// TODO: remember to delete this when used
+	VkFramebuffer transparentObjectsFramebuffer;
+
+	VkRenderPass opaqueObjectsRenderPass;
 
 	uint32_t currentFrame;
 
@@ -198,7 +203,7 @@ private:
 
 	void createSwapChain();
 
-	void createImageViews();
+	void createSwapchainImageViews();
 
 	VkShaderModule createShaderModule(const std::vector<char>& code);
 
@@ -248,19 +253,9 @@ private:
 
 	void createTextureImage(int texWidth, int texHeight, stbi_uc* pixels);
 
-	void createImage(uint32_t width, uint32_t height, uint32_t mipLevels, VkSampleCountFlagBits numSamples, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, VkImage& image, VkDeviceMemory& imageMemory);
-
-	void transitionImageLayout(VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout, uint32_t mipLevels);
-
 	void copyBufferToImage(VkBuffer buffer, VkImage image, uint32_t width, uint32_t height);
 
-	void createTextureImageView();
-	
-	VkImageView createImageView(VkImage image, VkFormat format, VkImageAspectFlags aspectFlags, uint32_t mipLevels);
-
 	void createTextureSampler();
-
-	void createDepthResources();
 
 	VkFormat findSupportedFormat(const std::vector<VkFormat>& candidates, VkImageTiling tiling, VkFormatFeatureFlags features);
 
@@ -272,5 +267,12 @@ private:
 
 	VkSampleCountFlagBits getMaxUsableSampleCount();
 
-	void createColorResources();
+	// Functions added for BWOIT
+	void createImageResource(VulkanImage* image, VkFormat format, VkImageUsageFlags usage, VkImageAspectFlags aspectFlags);
+
+	void createImageResources();
+
+	void createOpaqueObjectsFramebuffer();
+
+	void createOpaqueObjectsRenderPass();
 };
