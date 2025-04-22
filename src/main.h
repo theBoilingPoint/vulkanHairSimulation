@@ -103,11 +103,10 @@ private:
 	VkQueue presentQueue;
 	VkSwapchainKHR swapChain;
 
-	VkRenderPass renderPass;
-	VkDescriptorSetLayout descriptorSetLayout;
-	VkPipelineLayout opaqueObjectsPipelineLayout;
-	VkPipeline opaqueObjectsPipeline;
 	std::vector<VkFramebuffer> swapChainFramebuffers;
+
+	VkDescriptorSetLayout descriptorSetLayout;
+
 	VkCommandPool commandPool;
 	std::vector<Vertex> vertices;
 	std::vector<uint32_t> indices;
@@ -143,13 +142,17 @@ private:
 	VulkanImage offscreenColorImage;
 	VulkanImage weightedColorImage;
 	VulkanImage weightedRevealImage;
+	// Given that we use multisampling for images before this step, we need to downsample it before blitting the result to the swapchain
+	VulkanImage swapChainImage;
 
-	// Buffer that I will render my opaque objects to
-	VkFramebuffer opaqueObjectsFramebuffer;
 	// TODO: remember to delete this when used
 	VkFramebuffer transparentObjectsFramebuffer;
 
+	// Opaque Objects
 	VkRenderPass opaqueObjectsRenderPass;
+	VkPipelineLayout opaqueObjectsPipelineLayout;
+	VkPipeline opaqueObjectsPipeline;
+	VkFramebuffer opaqueObjectsFramebuffer;
 
 	uint32_t currentFrame;
 
@@ -209,10 +212,6 @@ private:
 
 	void createDescriptorSetLayout();
 
-	void createGraphicsPipeline(std::vector<char>vertShaderCode, std::vector<char>fragShaderCode);
-
-	void createRenderPass();
-
 	void createFramebuffers();
 
 	void createCommandPool();
@@ -268,7 +267,7 @@ private:
 	VkSampleCountFlagBits getMaxUsableSampleCount();
 
 	// Functions added for BWOIT
-	void createImageResource(VulkanImage* image, VkFormat format, VkImageUsageFlags usage, VkImageAspectFlags aspectFlags);
+	void createImageResource(VulkanImage* image, VkFormat format, VkSampleCountFlagBits samples, VkImageUsageFlags usage, VkImageAspectFlags aspectFlags);
 
 	void createImageResources();
 
@@ -277,4 +276,10 @@ private:
 	void createOpaqueObjectsFramebuffer();
 
 	void createOpaqueObjectsRenderPass();
+
+	void createOpqueObjectsPipeline(std::vector<char>vertShaderCode, std::vector<char>fragShaderCode);
+
+	void recordOpaqueObjectsRenderPass(VkCommandBuffer commandBuffer, uint32_t imageIndex);
+
+	void recordSwapchainBlit(VkCommandBuffer commandBuffer, uint32_t imageIndex);
 };

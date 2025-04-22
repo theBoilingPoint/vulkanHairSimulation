@@ -97,9 +97,10 @@ void main() {
 
     vec3 ambient = vec3(0.03) * albedo.xyz * ao;
     vec3 color   = ambient + Lo;  
+    // There is no need for this if you're using an sRGB swapchain format (e.g. VK_FORMAT_B8G8R8A8_SRGB)
     // Reinhard operator: c' = c / (c + 1)
-    color = color / (color + vec3(1.0));
+    //color = color / (color + vec3(1.0));
     // Gamma correction: c' = c^(1/gamma)
-    color = pow(color, vec3(1.0/2.2)); 
+    //color = pow(color, vec3(1.0/2.2)); 
     outColor = vec4(color, albedo.w);
 }
