@@ -24,14 +24,13 @@
 #include "uniformBuffer.h"
 #include "vertex.h"
 #include "vulkanImage.h"
+#include "common.h"
 
 #ifdef NDEBUG
 const bool enableValidationLayers = false;
 #else
 const bool enableValidationLayers = true;
 #endif
-
-typedef unsigned char stbi_uc;
 
 const int MAX_FRAMES_IN_FLIGHT = 2;
 
@@ -72,17 +71,19 @@ struct SwapChainSupportDetails {
 	std::vector<VkPresentModeKHR> presentModes;
 };
 
+struct MeshBuffer {
+	VkBuffer buffer;
+	VkDeviceMemory memory;
+	uint32_t count;
+};
+
 class Main {
 public:
 	Main(GLFWwindow* window,
 		Camera* camera,
-		std::vector<char> vertShaderCode, 
-		std::vector<char> fragShaderCode, 
-		std::vector<Vertex> vertices,
-		std::vector<uint32_t> indices,
-		int texWidth,
-		int texHeight,
-		stbi_uc* pixels);
+		std::unordered_map<std::string, std::vector<char>> shaders,
+		std::unordered_map<std::string, std::pair<std::vector<Vertex>, std::vector<uint32_t>>> models,
+		std::unordered_map<std::string, Image> textures);
 
 	~Main();
 
@@ -105,16 +106,17 @@ private:
 
 	std::vector<VkFramebuffer> swapChainFramebuffers;
 
+	VkCommandPool commandPool;
+	VkDescriptorPool descriptorPool;
+
 	VkDescriptorSetLayout descriptorSetLayout;
 
-	VkCommandPool commandPool;
-	std::vector<Vertex> vertices;
-	std::vector<uint32_t> indices;
-	VkBuffer vertexBuffer;
-	VkDeviceMemory vertexBufferMemory;
-	VkBuffer indexBuffer;
-	VkDeviceMemory indexBufferMemory;
-	VkDescriptorPool descriptorPool;
+	std::unordered_map<std::string, std::vector<char>> shaders;
+	std::unordered_map<std::string, std::pair<std::vector<Vertex>, std::vector<uint32_t>>> models;
+	std::unordered_map<std::string, Image> textures;
+
+	std::unordered_map<std::string, MeshBuffer> vertices;
+	std::unordered_map<std::string, MeshBuffer> indices;
 
 	std::vector<VkDescriptorSet> descriptorSets;
 	std::vector<VkBuffer> uniformBuffers;
@@ -136,7 +138,7 @@ private:
 	VkSampleCountFlagBits msaaSamples;
 
 	std::vector<VulkanImage> swapChainImageViews;
-	VulkanImage textureImage;
+	std::unordered_map<std::string, VulkanImage> textureImages;
 	VulkanImage colorImage;
 	VulkanImage depthImage;
 	VulkanImage offscreenColorImage;
@@ -145,24 +147,23 @@ private:
 	// Given that we use multisampling for images before this step, we need to downsample it before blitting the result to the swapchain
 	VulkanImage swapChainImage;
 
-	// TODO: remember to delete this when used
-	VkFramebuffer transparentObjectsFramebuffer;
-
 	// Opaque Objects
 	VkRenderPass opaqueObjectsRenderPass;
+	VkFramebuffer opaqueObjectsFramebuffer;
 	VkPipelineLayout opaqueObjectsPipelineLayout;
 	VkPipeline opaqueObjectsPipeline;
-	VkFramebuffer opaqueObjectsFramebuffer;
+	// Transparent Objects
+	// TODO: remember to delete this when used
+	VkRenderPass transparentObjectsRenderPass;
+	VkFramebuffer transparentObjectsFramebuffer;
+	VkPipelineLayout weightedColorPipelineLayout;
+	VkPipeline weightedColorPipeline;
+	VkPipelineLayout weightedRevealPipelineLayout;
+	VkPipeline weightedRevealPipeline;
 
 	uint32_t currentFrame;
 
-	void initVulkan(
-		std::vector<char> vertShaderCode, 
-		std::vector<char> fragShaderCode,
-		int texWidth, 
-		int texHeight, 
-		stbi_uc* pixels
-	);
+	void initVulkan();
 
 	void cleanUp();
 
@@ -212,7 +213,7 @@ private:
 
 	void createDescriptorSetLayout();
 
-	void createFramebuffers();
+	void createSwapchainFramebuffers();
 
 	void createCommandPool();
 
@@ -236,11 +237,13 @@ private:
 
 	void copyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size);
 
-	void createVertexBuffer();
-
 	void createBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory& bufferMemory);	
 
-	void createIndexBuffer();
+	MeshBuffer createVertexBuffer(std::vector<Vertex> vertices);
+	
+	MeshBuffer createIndexBuffer(std::vector<uint32_t> indices);
+
+	void createVertexAndIndexBuffers();
 
 	void createUniformBuffers();
 
@@ -250,7 +253,9 @@ private:
 
 	void createDescriptorSets();
 
-	void createTextureImage(int texWidth, int texHeight, stbi_uc* pixels);
+	VulkanImage createTextureImage(int texWidth, int texHeight, stbi_uc* pixels);
+
+	void createTextureImages();
 
 	void copyBufferToImage(VkBuffer buffer, VkImage image, uint32_t width, uint32_t height);
 
@@ -267,6 +272,8 @@ private:
 	VkSampleCountFlagBits getMaxUsableSampleCount();
 
 	// Functions added for BWOIT
+	void createFramebuffers();
+
 	void createImageResource(VulkanImage* image, VkFormat format, VkSampleCountFlagBits samples, VkImageUsageFlags usage, VkImageAspectFlags aspectFlags);
 
 	void createImageResources();
@@ -277,9 +284,19 @@ private:
 
 	void createOpaqueObjectsRenderPass();
 
-	void createOpqueObjectsPipeline(std::vector<char>vertShaderCode, std::vector<char>fragShaderCode);
+	void createOpaqueObjectsPipeline(std::vector<char>vertShaderCode, std::vector<char>fragShaderCode);
 
-	void recordOpaqueObjectsRenderPass(VkCommandBuffer commandBuffer, uint32_t imageIndex);
+	void recordOpaqueObjectsRenderPass(VkCommandBuffer commandBuffer);
+
+	void createTransparentObjectsRenderPass();
+
+	void createTransparentObjectsFramebuffer();
+
+	void createWeightedColorPipeline(std::vector<char>vertShaderCode, std::vector<char>fragShaderCode);
+
+	void createWeightedRevealPipeline(std::vector<char>vertShaderCode, std::vector<char>fragShaderCode);
+
+	void recordTransparentObjectsRenderPass(VkCommandBuffer commandBuffer);
 
 	void recordSwapchainBlit(VkCommandBuffer commandBuffer, uint32_t imageIndex);
 };

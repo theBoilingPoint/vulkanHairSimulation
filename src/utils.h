@@ -20,12 +20,8 @@
 #include <tuple>
 #include <shaderc/shaderc.hpp>
 
-struct Image {
-	int width;
-	int	height;
-	int	channels;
-	stbi_uc* pixels;
-};
+#include "vertex.h"
+#include "common.h"
 
 // Function to read a shader source file
 std::string readShaderFile(const std::string& filePath) {
@@ -67,6 +63,38 @@ void writeSPVToFile(const std::vector<uint32_t>& spirvCode, const std::string& o
 	outFile.close();
 }
 
+std::string compileShader(const std::string path, const std::string shaderName, const Shader type) {
+	std::string codeRaw = readShaderFile(path);
+	// Handles both '/' and '\' (cross-platform)
+	size_t lastSlash = path.find_last_of("/\\");
+	std::string shaderPath = "";
+
+	if (lastSlash != std::string::npos) {
+		// Include the slash
+		shaderPath = path.substr(0, lastSlash + 1);
+	}
+
+	std::vector<uint32_t> SPIRV;
+
+	switch (type) {
+	case Shader::VERTEX:
+		SPIRV = compileShaderToSPV(codeRaw, shaderc_glsl_vertex_shader);
+		break;
+	case Shader::FRAGMENT:
+		SPIRV = compileShaderToSPV(codeRaw, shaderc_glsl_fragment_shader);
+		break;
+	default:
+		throw std::runtime_error("Shader type not supported.");
+		break;
+	}
+
+	std::string newShaderPath = shaderPath + shaderName + ".spv";
+	writeSPVToFile(SPIRV, newShaderPath);
+	std::cout << "Shader " << shaderName << " compiled successfully.\n";
+
+	return newShaderPath;
+}
+
 std::vector<char> readFile(const std::string& filename) {
 	std::ifstream file(filename, std::ios::ate | std::ios::binary);
 
@@ -106,7 +134,7 @@ Image loadImage(const std::string& imagePath) {
 	return image;
 }
 
-std::tuple<std::vector<Vertex>, std::vector<uint32_t>> loadObj(const std::string& modelPath) {
+std::pair<std::vector<Vertex>, std::vector<uint32_t>> loadObj(const std::string& modelPath) {
 	tinyobj::ObjReader reader;
 
 	if (!reader.ParseFromFile(modelPath)) {
@@ -192,10 +220,10 @@ std::tuple<std::vector<Vertex>, std::vector<uint32_t>> loadObj(const std::string
 		}
 	}
 
-	return std::make_tuple(std::move(vertices), std::move(indices));
+	return std::pair(std::move(vertices), std::move(indices));
 }
 
-std::tuple<std::vector<Vertex>, std::vector<uint32_t>> loadGltf(const std::string& modelPath) {
+std::pair<std::vector<Vertex>, std::vector<uint32_t>> loadGltf(const std::string& modelPath) {
 	tinygltf::Model model;
 	tinygltf::TinyGLTF loader;
 	std::string err;
@@ -220,10 +248,10 @@ std::tuple<std::vector<Vertex>, std::vector<uint32_t>> loadGltf(const std::strin
 	}
 	std::cout << "Loaded glTF file: " << modelPath << std::endl;
 
-	return std::tuple<std::vector<Vertex>, std::vector<uint32_t>>();
+	return std::pair<std::vector<Vertex>, std::vector<uint32_t>>();
 }
 
-std::tuple<std::vector<Vertex>, std::vector<uint32_t>> loadModel(const std::string& modelPath) {
+std::pair<std::vector<Vertex>, std::vector<uint32_t>> loadModel(const std::string& modelPath) {
 	if (!std::filesystem::exists(modelPath)) {
 		throw std::runtime_error("The file doesn't exist in the relative path: " + modelPath);
 	}
@@ -235,5 +263,5 @@ std::tuple<std::vector<Vertex>, std::vector<uint32_t>> loadModel(const std::stri
 		return loadGltf(modelPath);
 	}
 
-	return std::tuple<std::vector<Vertex>, std::vector<uint32_t>>();
+	return std::pair<std::vector<Vertex>, std::vector<uint32_t>>();
 }

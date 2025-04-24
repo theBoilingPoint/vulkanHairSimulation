@@ -1,8 +1,8 @@
 #pragma once
 
 #include "camera.h"
-#include "main.h"
 #include "utils.h"
+#include "main.h"
 
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>

@@ -21,6 +21,7 @@ layout(location = 1) out vec3 outNormal;
 layout(location = 2) out vec3 fragColor;
 layout(location = 3) out vec2 fragTexCoord;
 layout(location = 4) out vec3 cameraPosition;
+layout(location = 5) out float depth;
 
 void main() {
     gl_Position = ubo.proj * ubo.view * ubo.model * vec4(inPosition, 1.0);
@@ -29,4 +30,6 @@ void main() {
     fragColor = inColor;
     fragTexCoord = inTexCoord;
     cameraPosition = ubo.cameraPos;
+    // TODO: Do I need to flip the sign here?
+    depth = (ubo.view * vec4(inPosition, 1.0)).z;
 }

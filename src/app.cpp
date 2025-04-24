@@ -94,25 +94,41 @@ void App::cursorPositionCallback(GLFWwindow* window, double xpos, double ypos) {
 }
 
 int main() {
-	std::string vertShaderCodeRaw = readShaderFile("shaders/main.vert");
-	std::vector<uint32_t> vertSPIRV = compileShaderToSPV(vertShaderCodeRaw, shaderc_glsl_vertex_shader);
-	writeSPVToFile(vertSPIRV, "shaders/vert.spv");
-	std::cout << "Vertex shader compiled successfully.\n";
+	std::string vertShaderPath = compileShader("shaders/main.vert", "mainVert", Shader::VERTEX);
+	std::string triShaderPath = compileShader("shaders/triangle.vert", "triVert", Shader::VERTEX);
+	std::string opaqueFragShaderPath = compileShader("shaders/main.frag", "mainFrag", Shader::FRAGMENT);
+	std::string weightedColorShaderPath = compileShader("shaders/weightedColor.frag", "weightedColor", Shader::FRAGMENT);
+	std::string weightedRevealShaderPath = compileShader("shaders/weightedReveal.frag", "weightedReveal", Shader::FRAGMENT);
 
-	std::string fragShaderCodeRaw = readShaderFile("shaders/main.frag");
-	std::vector<uint32_t> fragSPIRV = compileShaderToSPV(fragShaderCodeRaw, shaderc_glsl_fragment_shader);
-	writeSPVToFile(fragSPIRV, "shaders/frag.spv");
-	std::cout << "Fragment shader compiled successfully.\n";
+	std::unordered_map<std::string, std::vector<char>> shaders = {
+		{"vertShader", readFile(vertShaderPath)},
+		{"triangleShader", readFile(triShaderPath)},
+		{"opaqueFragShader", readFile(opaqueFragShaderPath)},
+		{"weightedColorFragShader", readFile(weightedColorShaderPath)},
+		{"weightedRevealFragShader", readFile(weightedRevealShaderPath)}
+	};
 
-	std::vector<char> vertShaderCode = readFile("shaders/vert.spv");
-	std::vector<char> fragShaderCode = readFile("shaders/frag.spv");
-	auto [vertices, indices] = loadModel("models/obj/ponytail/character.obj");
-	const Image image = loadImage("textures/ponytail/Head BaseColor.png");
+	std::unordered_map<std::string, std::pair<std::vector<Vertex>, std::vector<uint32_t>>> models = {
+		{"head", loadModel("models/obj/ponytail/character.obj")},
+		{"hair", loadModel("models/obj/ponytail/hair.obj")}
+	};
+	std::unordered_map<std::string, Image> textures = {
+		{"head", loadImage("textures/ponytail/Head BaseColor.png")},
+		{"hair", loadImage("textures/ponytail/T_Hair_Random Color.png")}
+	};
 
 	App app;
-	Main vulkanPipeline(app.window, app.camera, vertShaderCode, fragShaderCode, vertices, indices, image.width, image.height, image.pixels);
+	Main vulkanPipeline(
+		app.window, 
+		app.camera, 
+		shaders, 
+		models,
+		textures
+	);
 
-	stbi_image_free(image.pixels);
+	for (auto& pair : textures) {
+		stbi_image_free(pair.second.pixels);
+	}
 
 	try {
 		vulkanPipeline.mainLoop();

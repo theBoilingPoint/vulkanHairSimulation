@@ -1,24 +1,45 @@
-#include "main.h"
+#include "main.h"createIndexBuffer
 #include "vertex.h"
 
-Main::Main(GLFWwindow* window, Camera* camera, std::vector<char> vertShaderCode, std::vector<char> fragShaderCode, std::vector<Vertex> vertices,
-	std::vector<uint32_t> indices, int texWidth, int texHeight, stbi_uc* pixels) {
-	this->window = window;
-	this->camera = camera;
-	this->vertices = vertices;
-	this->indices = indices;
-	physicalDevice = VK_NULL_HANDLE;
-	msaaSamples = VK_SAMPLE_COUNT_1_BIT;
-	currentFrame = 0;
-
-	initVulkan(vertShaderCode, fragShaderCode, texWidth, texHeight, pixels);
+Main::Main(GLFWwindow* window,
+	Camera* camera,
+	std::unordered_map<std::string, std::vector<char>> shaders,
+	std::unordered_map<std::string, std::pair<std::vector<Vertex>, std::vector<uint32_t>>> models,
+	std::unordered_map<std::string, Image> textures): 
+	window(window),
+	camera(camera),
+	models(models),
+	textures(textures),
+	shaders(shaders),
+	physicalDevice(VK_NULL_HANDLE),
+	msaaSamples(VK_SAMPLE_COUNT_1_BIT),
+	currentFrame(0) {
+	initVulkan();
 }
 
 Main::~Main() {
 	cleanUp();
+
+	shaders.clear();
+	models.clear();
+	textures.clear();
+	
+	vertices.clear();
+	indices.clear();
+	descriptorSets.clear();
+	uniformBuffers.clear();
+	uniformBuffersMemory.clear();
+	uniformBuffersMapped.clear();
+	commandBuffers.clear();
+	imageAvailableSemaphores.clear();
+	renderFinishedSemaphores.clear();
+	inFlightFences.clear();
+	swapChainImages.clear();
+	swapChainImageViews.clear();
+	textureImages.clear();
 }
 
-void Main::initVulkan(std::vector<char> vertShaderCode, std::vector<char> fragShaderCode, int texWidth, int texHeight, stbi_uc* pixels) {
+void Main::initVulkan() {
 	createInstance();
 	setupDebugMessenger();
 	createSurface();
@@ -32,14 +53,16 @@ void Main::initVulkan(std::vector<char> vertShaderCode, std::vector<char> fragSh
 	createImageResources();
 
 	createOpaqueObjectsRenderPass();
+	createTransparentObjectsRenderPass();
 	createDescriptorSetLayout();
-	createOpqueObjectsPipeline(vertShaderCode, fragShaderCode);
+	createOpaqueObjectsPipeline(shaders["vertShader"], shaders["opaqueFragShader"]);
+	createWeightedColorPipeline(shaders["vertShader"], shaders["weightedColorFragShader"]);
+	createWeightedRevealPipeline(shaders["triangleShader"], shaders["weightedRevealFragShader"]);
 
 	createFramebuffers();
-	createTextureImage(texWidth, texHeight, pixels);
+	createTextureImages();
 	createTextureSampler();
-	createVertexBuffer();
-	createIndexBuffer();
+	createVertexAndIndexBuffers();
 	createUniformBuffers();
 	createDescriptorPool();
 	createDescriptorSets();
@@ -60,21 +83,36 @@ void Main::cleanUp() {
 	cleanupSwapChain();
 
 	vkDestroySampler(device, textureSampler, nullptr);
-	textureImage.destroy();
+
+	for (auto &pair : textureImages) {
+		pair.second.destroy();
+	}
+
 	for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
 		vkDestroyBuffer(device, uniformBuffers[i], nullptr);
 		vkFreeMemory(device, uniformBuffersMemory[i], nullptr);
 	}
 	vkDestroyDescriptorPool(device, descriptorPool, nullptr);
 	vkDestroyDescriptorSetLayout(device, descriptorSetLayout, nullptr);
-	vkDestroyBuffer(device, indexBuffer, nullptr);
-	vkFreeMemory(device, indexBufferMemory, nullptr);
-	vkDestroyBuffer(device, vertexBuffer, nullptr);
-	vkFreeMemory(device, vertexBufferMemory, nullptr);
+	for (auto& pair : vertices) {
+		vkDestroyBuffer(device, pair.second.buffer, nullptr);
+		vkFreeMemory(device, pair.second.memory, nullptr);
+	}
+
+	for (auto& pair : indices) {
+		vkDestroyBuffer(device, pair.second.buffer, nullptr);
+		vkFreeMemory(device, pair.second.memory, nullptr);
+	}
 
 	vkDestroyPipeline(device, opaqueObjectsPipeline, nullptr);
 	vkDestroyPipelineLayout(device, opaqueObjectsPipelineLayout, nullptr);
 	vkDestroyRenderPass(device, opaqueObjectsRenderPass, nullptr);
+	
+	vkDestroyPipelineLayout(device, weightedColorPipelineLayout, nullptr);
+	vkDestroyPipelineLayout(device, weightedRevealPipelineLayout, nullptr);
+	vkDestroyPipeline(device, weightedColorPipeline, nullptr);
+	vkDestroyPipeline(device, weightedRevealPipeline, nullptr);
+	vkDestroyRenderPass(device, transparentObjectsRenderPass, nullptr);
 
 	for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
 		vkDestroySemaphore(device, renderFinishedSemaphores[i], nullptr);
@@ -263,6 +301,11 @@ int Main::rateDeviceSuitability(VkPhysicalDevice device) {
 		return 0;
 	}
 
+	if (!deviceFeatures.independentBlend) {
+		std::cout << "This device doesn't support different blend settings across different color attachments." << std::endl;
+		return 0;
+	}
+
 	if (!findQueueFamilies(device).isComplete()) {
 		std::cout << "Queue families not complete on device: " << deviceProperties.deviceName << std::endl;
 		return 0;
@@ -345,6 +388,7 @@ void Main::createLogicalDevice() {
 	// One way to approach this problem is to enable Sample Shading 
 	// which will improve the image quality even further, though at an additional performance cost.
 	deviceFeatures.sampleRateShading = VK_TRUE;
+	deviceFeatures.independentBlend = VK_TRUE;
 
 	VkDeviceCreateInfo createInfo{};
 	createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
@@ -532,7 +576,7 @@ VkShaderModule Main::createShaderModule(const std::vector<char>& code) {
 
 	VkShaderModule shaderModule;
 	if (vkCreateShaderModule(device, &createInfo, nullptr, &shaderModule) != VK_SUCCESS) {
-		throw std::runtime_error("failed to create shader module!");
+		throw std::runtime_error("Failed to create shader module!");
 	}
 
 	return shaderModule;
@@ -546,14 +590,42 @@ void Main::createDescriptorSetLayout() {
 	uboLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
 	uboLayoutBinding.pImmutableSamplers = nullptr;
 
-	VkDescriptorSetLayoutBinding samplerLayoutBinding{};
-	samplerLayoutBinding.binding = 1;
-	samplerLayoutBinding.descriptorCount = 1;
-	samplerLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-	samplerLayoutBinding.pImmutableSamplers = nullptr;
-	samplerLayoutBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+	VkDescriptorSetLayoutBinding headSamplerLayoutBinding{};
+	headSamplerLayoutBinding.binding = 1;
+	headSamplerLayoutBinding.descriptorCount = 1;
+	headSamplerLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+	headSamplerLayoutBinding.pImmutableSamplers = nullptr;
+	headSamplerLayoutBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 
-	std::array<VkDescriptorSetLayoutBinding, 2> bindings = { uboLayoutBinding, samplerLayoutBinding };
+	VkDescriptorSetLayoutBinding hairSamplerLayoutBinding{};
+	hairSamplerLayoutBinding.binding = 2;
+	hairSamplerLayoutBinding.descriptorCount = 1;
+	hairSamplerLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+	hairSamplerLayoutBinding.pImmutableSamplers = nullptr;
+	hairSamplerLayoutBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+	VkDescriptorSetLayoutBinding weightedColorBinding{};
+	weightedColorBinding.binding = 3;
+	weightedColorBinding.descriptorCount = 1;
+	weightedColorBinding.descriptorType = VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT;
+	weightedColorBinding.pImmutableSamplers = nullptr;
+	weightedColorBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+	VkDescriptorSetLayoutBinding weightedRevealBinding{};
+	weightedRevealBinding.binding = 4;
+	weightedRevealBinding.descriptorCount = 1;
+	weightedRevealBinding.descriptorType = VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT;
+	weightedRevealBinding.pImmutableSamplers = nullptr;
+	weightedRevealBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+	std::vector<VkDescriptorSetLayoutBinding> bindings = {
+		uboLayoutBinding,
+		headSamplerLayoutBinding,
+		hairSamplerLayoutBinding,
+		weightedColorBinding,
+		weightedRevealBinding
+	};
+
 	VkDescriptorSetLayoutCreateInfo layoutInfo{};
 	layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
 	layoutInfo.bindingCount = static_cast<uint32_t>(bindings.size());
@@ -564,7 +636,65 @@ void Main::createDescriptorSetLayout() {
 	}
 }
 
-void Main::createOpqueObjectsPipeline(std::vector<char>vertShaderCode, std::vector<char>fragShaderCode) {
+void Main::createDescriptorSets() {
+	std::vector<VkDescriptorSetLayout> layouts(MAX_FRAMES_IN_FLIGHT, descriptorSetLayout);
+	VkDescriptorSetAllocateInfo allocInfo{};
+	allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+	allocInfo.descriptorPool = descriptorPool;
+	allocInfo.descriptorSetCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
+	allocInfo.pSetLayouts = layouts.data();
+
+	descriptorSets.resize(MAX_FRAMES_IN_FLIGHT);
+	if (vkAllocateDescriptorSets(device, &allocInfo, descriptorSets.data()) != VK_SUCCESS) {
+		throw std::runtime_error("failed to allocate descriptor sets!");
+	}
+
+	for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+		VkDescriptorBufferInfo bufferInfo{};
+		bufferInfo.buffer = uniformBuffers[i];
+		bufferInfo.offset = 0;
+		bufferInfo.range = sizeof(UniformBufferObject);
+
+		VkDescriptorImageInfo headAlbedoInfo{};
+		headAlbedoInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+		headAlbedoInfo.imageView = textureImages["head"].view;
+		headAlbedoInfo.sampler = textureSampler;
+
+		VkDescriptorImageInfo hairAlbedoInfo{};
+		hairAlbedoInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+		hairAlbedoInfo.imageView = textureImages["hair"].view;
+		hairAlbedoInfo.sampler = textureSampler;
+
+		std::array<VkWriteDescriptorSet, 3> descriptorWrites{};
+		descriptorWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+		descriptorWrites[0].dstSet = descriptorSets[i];
+		descriptorWrites[0].dstBinding = 0;
+		descriptorWrites[0].dstArrayElement = 0;
+		descriptorWrites[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+		descriptorWrites[0].descriptorCount = 1;
+		descriptorWrites[0].pBufferInfo = &bufferInfo;
+
+		descriptorWrites[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+		descriptorWrites[1].dstSet = descriptorSets[i];
+		descriptorWrites[1].dstBinding = 1;
+		descriptorWrites[1].dstArrayElement = 0;
+		descriptorWrites[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+		descriptorWrites[1].descriptorCount = 1;
+		descriptorWrites[1].pImageInfo = &headAlbedoInfo;
+
+		descriptorWrites[2].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+		descriptorWrites[2].dstSet = descriptorSets[i];
+		descriptorWrites[2].dstBinding = 2;
+		descriptorWrites[2].dstArrayElement = 0;
+		descriptorWrites[2].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+		descriptorWrites[2].descriptorCount = 1;
+		descriptorWrites[2].pImageInfo = &hairAlbedoInfo;
+
+		vkUpdateDescriptorSets(device, static_cast<uint32_t>(descriptorWrites.size()), descriptorWrites.data(), 0, nullptr);
+	}
+}
+
+void Main::createOpaqueObjectsPipeline(std::vector<char>vertShaderCode, std::vector<char>fragShaderCode) {
 	VkShaderModule vertShaderModule = createShaderModule(vertShaderCode);
 	VkShaderModule fragShaderModule = createShaderModule(fragShaderCode);
 
@@ -607,7 +737,7 @@ void Main::createOpqueObjectsPipeline(std::vector<char>vertShaderCode, std::vect
 	rasterizer.rasterizerDiscardEnable = VK_FALSE;
 	rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
 	rasterizer.lineWidth = 1.0f;
-	rasterizer.cullMode = VK_CULL_MODE_NONE;
+	rasterizer.cullMode = VK_CULL_MODE_BACK_BIT;
 	rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
 	rasterizer.depthBiasEnable = VK_FALSE;
 	rasterizer.depthBiasConstantFactor = 0.0f;
@@ -704,6 +834,301 @@ void Main::createOpqueObjectsPipeline(std::vector<char>vertShaderCode, std::vect
 	vkDestroyShaderModule(device, vertShaderModule, nullptr);
 }
 
+void Main::createWeightedColorPipeline(std::vector<char>vertShaderCode, std::vector<char>fragShaderCode) {
+	// TODO: m_shaderSceneVert, m_shaderWeightedColorFrag
+	VkShaderModule vertShaderModule = createShaderModule(vertShaderCode);
+	VkShaderModule fragShaderModule = createShaderModule(fragShaderCode);
+
+	VkPipelineShaderStageCreateInfo vertShaderStageInfo{};
+	vertShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+	vertShaderStageInfo.stage = VK_SHADER_STAGE_VERTEX_BIT;
+	vertShaderStageInfo.module = vertShaderModule;
+	vertShaderStageInfo.pName = "main";
+
+	VkPipelineShaderStageCreateInfo fragShaderStageInfo{};
+	fragShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+	fragShaderStageInfo.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+	fragShaderStageInfo.module = fragShaderModule;
+	fragShaderStageInfo.pName = "main";
+
+	VkPipelineShaderStageCreateInfo shaderStages[] = { vertShaderStageInfo, fragShaderStageInfo };
+
+	VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
+	auto bindingDescription = Vertex::getBindingDescription();
+	auto attributeDescriptions = Vertex::getAttributeDescriptions();
+	vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+	vertexInputInfo.vertexBindingDescriptionCount = 1;
+	vertexInputInfo.vertexAttributeDescriptionCount = static_cast<uint32_t>(attributeDescriptions.size());
+	vertexInputInfo.pVertexBindingDescriptions = &bindingDescription;
+	vertexInputInfo.pVertexAttributeDescriptions = attributeDescriptions.data();
+
+	VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
+	inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+	inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+	inputAssembly.primitiveRestartEnable = VK_FALSE;
+
+	VkPipelineViewportStateCreateInfo viewportState{};
+	viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+	viewportState.viewportCount = 1;
+	viewportState.scissorCount = 1;
+
+	VkPipelineRasterizationStateCreateInfo rasterizer{};
+	rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+	rasterizer.depthClampEnable = VK_FALSE;
+	rasterizer.rasterizerDiscardEnable = VK_FALSE;
+	rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
+	rasterizer.lineWidth = 1.0f;
+	rasterizer.cullMode = VK_CULL_MODE_NONE;
+	rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+	rasterizer.depthBiasEnable = VK_FALSE;
+	rasterizer.depthBiasConstantFactor = 0.0f;
+	rasterizer.depthBiasClamp = 0.0f;
+	rasterizer.depthBiasSlopeFactor = 0.0f;
+
+	VkPipelineMultisampleStateCreateInfo multisampling{};
+	multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+	multisampling.pSampleMask = nullptr;
+	multisampling.alphaToCoverageEnable = VK_FALSE;
+	multisampling.alphaToOneEnable = VK_FALSE;
+	multisampling.rasterizationSamples = msaaSamples;
+	multisampling.sampleShadingEnable = VK_TRUE; // enable sample shading in the pipeline
+	multisampling.minSampleShading = .2f; // min fraction for sample shading; closer to one is smoother
+
+	VkPipelineDepthStencilStateCreateInfo depthStencil{};
+	depthStencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+	depthStencil.depthTestEnable = VK_TRUE;
+	depthStencil.depthWriteEnable = VK_FALSE;
+	depthStencil.depthCompareOp = VK_COMPARE_OP_LESS;
+	depthStencil.depthBoundsTestEnable = VK_FALSE;
+	depthStencil.minDepthBounds = 0.0f;
+	depthStencil.maxDepthBounds = 1.0f;
+	depthStencil.stencilTestEnable = VK_FALSE;
+	depthStencil.front = {};
+	depthStencil.back = {};
+
+	const VkColorComponentFlags colorFlags = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+
+	VkPipelineColorBlendAttachmentState colorBlendAttachment0{};
+	colorBlendAttachment0.colorWriteMask = colorFlags;
+	colorBlendAttachment0.blendEnable = VK_TRUE;
+	colorBlendAttachment0.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
+	colorBlendAttachment0.dstColorBlendFactor = VK_BLEND_FACTOR_ONE;
+	colorBlendAttachment0.colorBlendOp = VK_BLEND_OP_ADD;
+	colorBlendAttachment0.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+	colorBlendAttachment0.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+	colorBlendAttachment0.alphaBlendOp = VK_BLEND_OP_ADD;
+
+	VkPipelineColorBlendAttachmentState colorBlendAttachment1{};
+	colorBlendAttachment1.colorWriteMask = colorFlags;
+	colorBlendAttachment1.blendEnable = VK_TRUE;
+	colorBlendAttachment1.srcColorBlendFactor = VK_BLEND_FACTOR_ZERO;
+	colorBlendAttachment1.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_COLOR;
+	colorBlendAttachment1.colorBlendOp = VK_BLEND_OP_ADD;
+	colorBlendAttachment1.srcAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+	colorBlendAttachment1.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+	colorBlendAttachment1.alphaBlendOp = VK_BLEND_OP_ADD;
+
+	std::vector<VkPipelineColorBlendAttachmentState> colorBlendAttachments = { colorBlendAttachment0, colorBlendAttachment1 };
+	VkPipelineColorBlendStateCreateInfo colorBlending{};
+	colorBlending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+	colorBlending.logicOpEnable = VK_FALSE;
+	colorBlending.logicOp = VK_LOGIC_OP_COPY;
+	colorBlending.attachmentCount = colorBlendAttachments.size();
+	colorBlending.pAttachments = colorBlendAttachments.data();
+	colorBlending.blendConstants[0] = 0.0f;
+	colorBlending.blendConstants[1] = 0.0f;
+	colorBlending.blendConstants[2] = 0.0f;
+	colorBlending.blendConstants[3] = 0.0f;
+
+	VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
+	pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+	pipelineLayoutInfo.setLayoutCount = 1;
+	pipelineLayoutInfo.pSetLayouts = &descriptorSetLayout;
+	pipelineLayoutInfo.pushConstantRangeCount = 0;
+	pipelineLayoutInfo.pPushConstantRanges = nullptr;
+
+	if (vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &weightedColorPipelineLayout) != VK_SUCCESS) {
+		throw std::runtime_error("failed to create pipeline layout!");
+	}
+
+	VkDynamicState dynamicStates[] = {
+		VK_DYNAMIC_STATE_VIEWPORT,
+		VK_DYNAMIC_STATE_SCISSOR
+	};
+
+	VkPipelineDynamicStateCreateInfo dynamicState{};
+	dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+	dynamicState.dynamicStateCount = static_cast<uint32_t>(std::size(dynamicStates));
+	dynamicState.pDynamicStates = dynamicStates;
+
+
+	VkGraphicsPipelineCreateInfo pipelineInfo{};
+	pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+	pipelineInfo.stageCount = 2;
+	pipelineInfo.pStages = shaderStages;
+	pipelineInfo.pVertexInputState = &vertexInputInfo;
+	pipelineInfo.pInputAssemblyState = &inputAssembly;
+	pipelineInfo.pViewportState = &viewportState;
+	pipelineInfo.pRasterizationState = &rasterizer;
+	pipelineInfo.pMultisampleState = &multisampling;
+	pipelineInfo.pColorBlendState = &colorBlending;
+	pipelineInfo.pDynamicState = &dynamicState;
+	pipelineInfo.layout = weightedColorPipelineLayout;
+	pipelineInfo.renderPass = transparentObjectsRenderPass;
+	pipelineInfo.subpass = 0;
+	pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
+	pipelineInfo.basePipelineIndex = -1;
+	pipelineInfo.pDepthStencilState = &depthStencil;
+
+	if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &weightedColorPipeline) != VK_SUCCESS) {
+		throw std::runtime_error("Failed to create weighted color pipeline!");
+	}
+
+	vkDestroyShaderModule(device, fragShaderModule, nullptr);
+	vkDestroyShaderModule(device, vertShaderModule, nullptr);
+}
+
+void Main::createWeightedRevealPipeline(std::vector<char>vertShaderCode, std::vector<char>fragShaderCode) {
+	// TODO: m_shaderFullScreenTriangleVert, m_shaderWeightedCompositeFrag
+	VkShaderModule vertShaderModule = createShaderModule(vertShaderCode);
+	VkShaderModule fragShaderModule = createShaderModule(fragShaderCode);
+
+	VkPipelineShaderStageCreateInfo vertShaderStageInfo{};
+	vertShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+	vertShaderStageInfo.stage = VK_SHADER_STAGE_VERTEX_BIT;
+	vertShaderStageInfo.module = vertShaderModule;
+	vertShaderStageInfo.pName = "main";
+
+	VkPipelineShaderStageCreateInfo fragShaderStageInfo{};
+	fragShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+	fragShaderStageInfo.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+	fragShaderStageInfo.module = fragShaderModule;
+	fragShaderStageInfo.pName = "main";
+
+	VkPipelineShaderStageCreateInfo shaderStages[] = { vertShaderStageInfo, fragShaderStageInfo };
+
+	VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
+	vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+	vertexInputInfo.vertexBindingDescriptionCount = 0;
+	vertexInputInfo.vertexAttributeDescriptionCount = 0;
+	vertexInputInfo.pVertexBindingDescriptions = nullptr;
+	vertexInputInfo.pVertexAttributeDescriptions = nullptr;
+
+	VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
+	inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+	inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+	inputAssembly.primitiveRestartEnable = VK_FALSE;
+
+	VkPipelineViewportStateCreateInfo viewportState{};
+	viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+	viewportState.viewportCount = 1;
+	viewportState.scissorCount = 1;
+
+	VkPipelineRasterizationStateCreateInfo rasterizer{};
+	rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+	rasterizer.depthClampEnable = VK_FALSE;
+	rasterizer.rasterizerDiscardEnable = VK_FALSE;
+	rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
+	rasterizer.lineWidth = 1.0f;
+	rasterizer.cullMode = VK_CULL_MODE_NONE;
+	rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+	rasterizer.depthBiasEnable = VK_FALSE;
+	rasterizer.depthBiasConstantFactor = 0.0f;
+	rasterizer.depthBiasClamp = 0.0f;
+	rasterizer.depthBiasSlopeFactor = 0.0f;
+
+	VkPipelineMultisampleStateCreateInfo multisampling{};
+	multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+	multisampling.pSampleMask = nullptr;
+	multisampling.alphaToCoverageEnable = VK_FALSE;
+	multisampling.alphaToOneEnable = VK_FALSE;
+	multisampling.rasterizationSamples = msaaSamples;
+	multisampling.sampleShadingEnable = VK_TRUE; // enable sample shading in the pipeline
+	multisampling.minSampleShading = .2f; // min fraction for sample shading; closer to one is smoother
+
+	VkPipelineDepthStencilStateCreateInfo depthStencil{};
+	depthStencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+	depthStencil.depthTestEnable = VK_TRUE;
+	depthStencil.depthWriteEnable = VK_FALSE;
+	depthStencil.depthCompareOp = VK_COMPARE_OP_LESS;
+	depthStencil.depthBoundsTestEnable = VK_FALSE;
+	depthStencil.minDepthBounds = 0.0f;
+	depthStencil.maxDepthBounds = 1.0f;
+	depthStencil.stencilTestEnable = VK_FALSE;
+	depthStencil.front = {};
+	depthStencil.back = {};
+
+	const VkColorComponentFlags colorFlags = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+
+	VkPipelineColorBlendAttachmentState colorBlendAttachment{};
+	colorBlendAttachment.colorWriteMask = colorFlags;
+	colorBlendAttachment.blendEnable = VK_TRUE;
+	colorBlendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+	colorBlendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+	colorBlendAttachment.colorBlendOp = VK_BLEND_OP_ADD;
+	colorBlendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+	colorBlendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+	colorBlendAttachment.alphaBlendOp = VK_BLEND_OP_ADD;
+
+	VkPipelineColorBlendStateCreateInfo colorBlending{};
+	colorBlending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+	colorBlending.logicOpEnable = VK_FALSE;
+	colorBlending.logicOp = VK_LOGIC_OP_COPY;
+	colorBlending.attachmentCount = 1;
+	colorBlending.pAttachments = &colorBlendAttachment;
+	colorBlending.blendConstants[0] = 0.0f;
+	colorBlending.blendConstants[1] = 0.0f;
+	colorBlending.blendConstants[2] = 0.0f;
+	colorBlending.blendConstants[3] = 0.0f;
+
+	VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
+	pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+	pipelineLayoutInfo.setLayoutCount = 1;
+	pipelineLayoutInfo.pSetLayouts = &descriptorSetLayout;
+	pipelineLayoutInfo.pushConstantRangeCount = 0;
+	pipelineLayoutInfo.pPushConstantRanges = nullptr;
+
+	if (vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &weightedRevealPipelineLayout) != VK_SUCCESS) {
+		throw std::runtime_error("failed to create pipeline layout!");
+	}
+
+	VkDynamicState dynamicStates[] = {
+		VK_DYNAMIC_STATE_VIEWPORT,
+		VK_DYNAMIC_STATE_SCISSOR
+	};
+
+	VkPipelineDynamicStateCreateInfo dynamicState{};
+	dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+	dynamicState.dynamicStateCount = static_cast<uint32_t>(std::size(dynamicStates));
+	dynamicState.pDynamicStates = dynamicStates;
+
+
+	VkGraphicsPipelineCreateInfo pipelineInfo{};
+	pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+	pipelineInfo.stageCount = 2;
+	pipelineInfo.pStages = shaderStages;
+	pipelineInfo.pVertexInputState = &vertexInputInfo;
+	pipelineInfo.pInputAssemblyState = &inputAssembly;
+	pipelineInfo.pViewportState = &viewportState;
+	pipelineInfo.pRasterizationState = &rasterizer;
+	pipelineInfo.pMultisampleState = &multisampling;
+	pipelineInfo.pColorBlendState = &colorBlending;
+	pipelineInfo.pDynamicState = &dynamicState;
+	pipelineInfo.layout = weightedRevealPipelineLayout;
+	pipelineInfo.renderPass = transparentObjectsRenderPass;
+	pipelineInfo.subpass = 1;
+	pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
+	pipelineInfo.basePipelineIndex = -1;
+	pipelineInfo.pDepthStencilState = &depthStencil;
+
+	if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &weightedRevealPipeline) != VK_SUCCESS) {
+		throw std::runtime_error("Failed to create weighted reveal pipeline!");
+	}
+
+	vkDestroyShaderModule(device, fragShaderModule, nullptr);
+	vkDestroyShaderModule(device, vertShaderModule, nullptr);
+}
+
 void Main::createOpaqueObjectsRenderPass() {
 	std::array<VkAttachmentDescription, 2> attachments = {};  // Color attachment, depth attachment
 
@@ -762,7 +1187,104 @@ void Main::createOpaqueObjectsRenderPass() {
 	renderPassInfo.pDependencies = &selfDependency;
 
 	if (vkCreateRenderPass(device, &renderPassInfo, nullptr, &opaqueObjectsRenderPass) != VK_SUCCESS) {
-		throw std::runtime_error("failed to create opque objects render pass!");
+		throw std::runtime_error("failed to create opaque objects render pass!");
+	}
+}
+
+void Main::createTransparentObjectsRenderPass() {
+	VkAttachmentDescription weightedColorAttachment = {};
+	weightedColorAttachment.format = weightedColorImage.format;
+	weightedColorAttachment.samples = msaaSamples;
+	weightedColorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+	weightedColorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+	weightedColorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+	weightedColorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+	weightedColorAttachment.initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+	weightedColorAttachment.finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+	VkAttachmentDescription weightedRevealAttachment = weightedColorAttachment;
+	weightedRevealAttachment.format = weightedRevealImage.format;
+
+	VkAttachmentDescription colorAttachment = weightedColorAttachment;
+	colorAttachment.format = offscreenColorImage.format;
+	colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+
+	VkAttachmentDescription depthAttachment = colorAttachment;
+	depthAttachment.format = depthImage.format;
+	depthAttachment.initialLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+	depthAttachment.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+	const std::array<VkAttachmentDescription, 4> allAttachments = { weightedColorAttachment, weightedRevealAttachment, colorAttachment, depthAttachment };
+
+	std::array<VkSubpassDescription, 2> subpasses{};
+
+	// Subpass 0 - weighted textures & depth texture for testing
+	std::array<VkAttachmentReference, 2> subpass0ColorAttachments{};
+	subpass0ColorAttachments[0].attachment = 0;
+	subpass0ColorAttachments[0].layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+	subpass0ColorAttachments[1].attachment = 1;
+	subpass0ColorAttachments[1].layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+	VkAttachmentReference depthAttachmentRef{};
+	depthAttachmentRef.attachment = 3;  // i.e. m_depthImage
+	depthAttachmentRef.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+	subpasses[0].pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+	subpasses[0].colorAttachmentCount = static_cast<uint32_t>(subpass0ColorAttachments.size());
+	subpasses[0].pColorAttachments = subpass0ColorAttachments.data();
+	subpasses[0].pDepthStencilAttachment = &depthAttachmentRef;
+
+	// Subpass 1
+	VkAttachmentReference subpass1ColorAttachment{};
+	subpass1ColorAttachment.attachment = 2;  // i.e. m_colorImage
+	subpass1ColorAttachment.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+	std::array<VkAttachmentReference, 2> subpass1InputAttachments{};
+	subpass1InputAttachments[0].attachment = 0;
+	subpass1InputAttachments[0].layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+	subpass1InputAttachments[1].attachment = 1;
+	subpass1InputAttachments[1].layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+	subpasses[1].pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+	subpasses[1].colorAttachmentCount = 1;
+	subpasses[1].pColorAttachments = &subpass1ColorAttachment;
+	subpasses[1].inputAttachmentCount = static_cast<uint32_t>(subpass1InputAttachments.size());
+	subpasses[1].pInputAttachments = subpass1InputAttachments.data();
+
+	// Dependencies
+	std::array<VkSubpassDependency, 3> subpassDependencies{};
+	subpassDependencies[0].srcSubpass = VK_SUBPASS_EXTERNAL;
+	subpassDependencies[0].dstSubpass = 0;
+	subpassDependencies[0].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+	subpassDependencies[0].dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+	subpassDependencies[0].srcAccessMask = 0;
+	subpassDependencies[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+	//
+	subpassDependencies[1].srcSubpass = 0;
+	subpassDependencies[1].dstSubpass = 1;
+	subpassDependencies[1].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+	subpassDependencies[1].dstStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+	subpassDependencies[1].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+	subpassDependencies[1].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+	// Finally, we have a dependency at the end to allow the images to transition back to VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+	subpassDependencies[2].srcSubpass = 1;
+	subpassDependencies[2].dstSubpass = VK_SUBPASS_EXTERNAL;
+	subpassDependencies[2].srcStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+	subpassDependencies[2].dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+	subpassDependencies[2].srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+	subpassDependencies[2].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+
+	// Finally create the render pass
+	VkRenderPassCreateInfo renderPassInfo = { VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO };
+	renderPassInfo.attachmentCount = static_cast<uint32_t>(allAttachments.size());
+	renderPassInfo.pAttachments = allAttachments.data();
+	renderPassInfo.dependencyCount = static_cast<uint32_t>(subpassDependencies.size());
+	renderPassInfo.pDependencies = subpassDependencies.data();
+	renderPassInfo.subpassCount = static_cast<uint32_t>(subpasses.size());
+	renderPassInfo.pSubpasses = subpasses.data();
+
+	if (vkCreateRenderPass(device, &renderPassInfo, nullptr, &transparentObjectsRenderPass) != VK_SUCCESS) {
+		throw std::runtime_error("failed to create transparent objects render pass!");
 	}
 }
 
@@ -781,7 +1303,23 @@ void Main::createOpaqueObjectsFramebuffer() {
 	}
 }
 
-void Main::createFramebuffers() {
+void Main::createTransparentObjectsFramebuffer() {
+	std::array<VkImageView, 4> attachments = { weightedColorImage.view, weightedRevealImage.view, offscreenColorImage.view, depthImage.view };
+
+	VkFramebufferCreateInfo framebufferInfo = { VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO };
+	framebufferInfo.renderPass = transparentObjectsRenderPass;
+	framebufferInfo.attachmentCount = static_cast<uint32_t>(attachments.size());
+	framebufferInfo.pAttachments = attachments.data();
+	framebufferInfo.width = weightedColorImage.width;
+	framebufferInfo.height = weightedColorImage.height;
+	framebufferInfo.layers = 1;
+
+	if (vkCreateFramebuffer(device, &framebufferInfo, nullptr, &transparentObjectsFramebuffer) != VK_SUCCESS) {
+		throw std::runtime_error("failed to create transparent objects framebuffer!");
+	}
+}
+
+void Main::createSwapchainFramebuffers() {
 	// Create swapchain frame buffers.
 	swapChainFramebuffers.resize(swapChainImageViews.size());
 	for (size_t i = 0; i < swapChainImageViews.size(); i++) {
@@ -804,10 +1342,13 @@ void Main::createFramebuffers() {
 		if (vkCreateFramebuffer(device, &framebufferInfo, nullptr, &swapChainFramebuffers[i]) != VK_SUCCESS) {
 			throw std::runtime_error("failed to create framebuffer!");
 		}
-	}
+	}	
+}
 
-	// Create opaque objects frame buffer.
+void Main::createFramebuffers() {
+	createSwapchainFramebuffers();
 	createOpaqueObjectsFramebuffer();
+	createTransparentObjectsFramebuffer();
 }
 
 void Main::createCommandPool() {
@@ -870,7 +1411,7 @@ void Main::endSingleTimeCommands(VkCommandBuffer commandBuffer) {
 	vkFreeCommandBuffers(device, commandPool, 1, &commandBuffer);
 }
 
-void Main::recordOpaqueObjectsRenderPass(VkCommandBuffer commandBuffer, uint32_t imageIndex) {
+void Main::recordOpaqueObjectsRenderPass(VkCommandBuffer commandBuffer) {
 	offscreenColorImage.transitionLayout(commandBuffer, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT);
 	
 	// Set up the render pass
@@ -890,12 +1431,12 @@ void Main::recordOpaqueObjectsRenderPass(VkCommandBuffer commandBuffer, uint32_t
 
 	vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
 
-	VkBuffer vertexBuffers[] = { vertexBuffer };
+	VkBuffer vertexBuffers[] = { vertices["head"].buffer };
 	VkDeviceSize offsets[] = { 0 };
 
 	vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, opaqueObjectsPipeline);
 	vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
-	vkCmdBindIndexBuffer(commandBuffer, indexBuffer, 0, VK_INDEX_TYPE_UINT32);
+	vkCmdBindIndexBuffer(commandBuffer, indices["head"].buffer, 0, VK_INDEX_TYPE_UINT32);
 	vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, opaqueObjectsPipelineLayout, 0, 1, &descriptorSets[currentFrame], 0, nullptr);
 
 	// We need to do this because we've set the viewport and scissor to be dynamic.
@@ -913,7 +1454,51 @@ void Main::recordOpaqueObjectsRenderPass(VkCommandBuffer commandBuffer, uint32_t
 	scissor.extent = swapChainExtent;
 	vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
 
-	vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(indices.size()), 1, 0, 0, 0);
+	vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(indices["head"].count), 1, 0, 0, 0);
+	
+	vkCmdEndRenderPass(commandBuffer);
+}
+
+void Main::recordTransparentObjectsRenderPass(VkCommandBuffer commandBuffer) {
+	offscreenColorImage.transitionLayout(commandBuffer, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT);
+
+	VkRenderPassBeginInfo renderPassInfo = { VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO };
+	renderPassInfo.renderPass = transparentObjectsRenderPass;
+	renderPassInfo.framebuffer = transparentObjectsFramebuffer;
+	renderPassInfo.renderArea.offset = { 0, 0 };
+	renderPassInfo.renderArea.extent.width = weightedColorImage.width;
+	renderPassInfo.renderArea.extent.height = weightedRevealImage.height;
+	std::array<VkClearValue, 2> clearValues;
+	clearValues[0].color.float32[0] = 0.0f;
+	clearValues[0].color.float32[1] = 0.0f;
+	clearValues[0].color.float32[2] = 0.0f;
+	clearValues[0].color.float32[3] = 0.0f;
+	clearValues[1].color.float32[0] = 1.0f;  // Initially, all pixels show through all the way (reveal = 100%)
+	renderPassInfo.clearValueCount = static_cast<uint32_t>(clearValues.size());
+	renderPassInfo.pClearValues = clearValues.data();
+
+	vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+
+	// COLOR PASS
+	// Bind the vertex and index buffers
+	VkBuffer vertexBuffers[] = { vertices["hair"].buffer };
+	VkDeviceSize offsets[] = { 0 };
+	vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
+	vkCmdBindIndexBuffer(commandBuffer, indices["hair"].buffer, 0, VK_INDEX_TYPE_UINT32);
+
+	// Computes the weighted sum and reveal factor.
+	vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, weightedColorPipeline);
+	// Draw all objects
+	vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(indices["hair"].count), 1, 0, 0, 0);
+	
+
+	// Move to the next subpass
+	vkCmdNextSubpass(commandBuffer, VK_SUBPASS_CONTENTS_INLINE);
+	// COMPOSITE PASS
+	// Averages out the summed colors (in some sense) to get the final transparent color.
+	vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, weightedRevealPipeline);
+	// Draw a full-screen triangle
+	vkCmdDraw(commandBuffer, 3, 1, 0, 0);
 	
 	vkCmdEndRenderPass(commandBuffer);
 }
@@ -970,13 +1555,14 @@ void Main::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageInde
 	}
 	
 	// Draw opaque objects.
-	recordOpaqueObjectsRenderPass(commandBuffer, imageIndex);
-	// TODO: Draw transparent objects.
+	recordOpaqueObjectsRenderPass(commandBuffer);
+	// Draw transparent objects.
+	// recordTransparentObjectsRenderPass(commandBuffer);
 	// Blit to swapchain.
 	recordSwapchainBlit(commandBuffer, imageIndex);
 
 	if (vkEndCommandBuffer(commandBuffer) != VK_SUCCESS) {
-		throw std::runtime_error("failed to record command buffer!");
+		throw std::runtime_error("Failed to record command buffer!");
 	}
 }
 
@@ -1079,6 +1665,7 @@ void Main::cleanupSwapChain() {
 		vkDestroyFramebuffer(device, swapChainFramebuffers[i], nullptr);
 	}
 	vkDestroyFramebuffer(device, opaqueObjectsFramebuffer, nullptr);
+	vkDestroyFramebuffer(device, transparentObjectsFramebuffer, nullptr);
 
 	for (size_t i = 0; i < swapChainImageViews.size(); i++) {
 		swapChainImageViews[i].destroySwapchainView();
@@ -1128,25 +1715,6 @@ void Main::copyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size)
 	endSingleTimeCommands(commandBuffer);
 }
 
-void Main::createVertexBuffer() {
-	VkDeviceSize bufferSize = sizeof(vertices[0]) * vertices.size();
-
-	VkBuffer stagingBuffer;
-	VkDeviceMemory stagingBufferMemory;
-	createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, stagingBuffer, stagingBufferMemory);
-
-	void* data;
-	vkMapMemory(device, stagingBufferMemory, 0, bufferSize, 0, &data);
-	memcpy(data, vertices.data(), (size_t)bufferSize);
-	vkUnmapMemory(device, stagingBufferMemory);
-
-	createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, vertexBuffer, vertexBufferMemory);
-	copyBuffer(stagingBuffer, vertexBuffer, bufferSize);
-
-	vkDestroyBuffer(device, stagingBuffer, nullptr);
-	vkFreeMemory(device, stagingBufferMemory, nullptr);
-}
-
 void Main::createBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory& bufferMemory) {
 	VkBufferCreateInfo bufferInfo{};
 	bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
@@ -1173,7 +1741,30 @@ void Main::createBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPro
 	vkBindBufferMemory(device, buffer, bufferMemory, 0);
 }
 
-void Main::createIndexBuffer() {
+MeshBuffer Main::createVertexBuffer(std::vector<Vertex> vertices) {
+	VkDeviceSize bufferSize = sizeof(vertices[0]) * vertices.size();
+
+	VkBuffer stagingBuffer;
+	VkDeviceMemory stagingBufferMemory;
+	createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, stagingBuffer, stagingBufferMemory);
+
+	void* data;
+	vkMapMemory(device, stagingBufferMemory, 0, bufferSize, 0, &data);
+	memcpy(data, vertices.data(), (size_t)bufferSize);
+	vkUnmapMemory(device, stagingBufferMemory);
+
+	VkBuffer vertexBuffer;
+	VkDeviceMemory vertexBufferMemory;
+	createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, vertexBuffer, vertexBufferMemory);
+	copyBuffer(stagingBuffer, vertexBuffer, bufferSize);
+
+	vkDestroyBuffer(device, stagingBuffer, nullptr);
+	vkFreeMemory(device, stagingBufferMemory, nullptr);
+
+	return MeshBuffer(vertexBuffer, vertexBufferMemory, vertices.size());
+}
+
+MeshBuffer Main::createIndexBuffer(std::vector<uint32_t> indices) {
 	VkDeviceSize bufferSize = sizeof(indices[0]) * indices.size();
 
 	VkBuffer stagingBuffer;
@@ -1185,12 +1776,25 @@ void Main::createIndexBuffer() {
 	memcpy(data, indices.data(), (size_t)bufferSize);
 	vkUnmapMemory(device, stagingBufferMemory);
 
+	VkBuffer indexBuffer;
+	VkDeviceMemory indexBufferMemory;
 	createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, indexBuffer, indexBufferMemory);
 
 	copyBuffer(stagingBuffer, indexBuffer, bufferSize);
 
 	vkDestroyBuffer(device, stagingBuffer, nullptr);
 	vkFreeMemory(device, stagingBufferMemory, nullptr);
+
+	return MeshBuffer(indexBuffer, indexBufferMemory, indices.size());
+}
+
+void Main::createVertexAndIndexBuffers() {
+	for (auto& pair : models) {
+		const auto curVertices = pair.second.first;
+		const auto curIndices = pair.second.second;
+		vertices[pair.first] = createVertexBuffer(curVertices);
+		indices[pair.first] = createIndexBuffer(curIndices);
+	}
 }
 
 void Main::createUniformBuffers() {
@@ -1222,11 +1826,13 @@ void Main::updateUniformBuffer(uint32_t currentImage) {
 }
 
 void Main::createDescriptorPool() {
-	std::array<VkDescriptorPoolSize, 2> poolSizes{};
+	std::array<VkDescriptorPoolSize, 3> poolSizes{};
 	poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
 	poolSizes[0].descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
 	poolSizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-	poolSizes[1].descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
+	poolSizes[1].descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT) * 2;
+	poolSizes[2].type = VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT;
+	poolSizes[2].descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT) * 2;
 
 	VkDescriptorPoolCreateInfo poolInfo{};
 	poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
@@ -1245,7 +1851,7 @@ void Main::transitionImage(VulkanImage image, VkImageLayout newLayout, VkAccessF
 	endSingleTimeCommands(commandBuffer);
 }
 
-void Main::createTextureImage(int texWidth, int texHeight, stbi_uc* pixels) {
+VulkanImage Main::createTextureImage(int texWidth, int texHeight, stbi_uc* pixels) {
 	VkDeviceSize imageSize = texWidth * texHeight * 4;
 	mipLevels = static_cast<uint32_t>(std::floor(std::log2(std::max(texWidth, texHeight)))) + 1;
 
@@ -1258,6 +1864,7 @@ void Main::createTextureImage(int texWidth, int texHeight, stbi_uc* pixels) {
 	memcpy(data, pixels, static_cast<size_t>(imageSize));
 	vkUnmapMemory(device, stagingBufferMemory);
 
+	VulkanImage textureImage;
 	textureImage = VulkanImage(
 		&device, 
 		texWidth, 
@@ -1284,52 +1891,15 @@ void Main::createTextureImage(int texWidth, int texHeight, stbi_uc* pixels) {
 
 	vkDestroyBuffer(device, stagingBuffer, nullptr);
 	vkFreeMemory(device, stagingBufferMemory, nullptr);
+
+	return textureImage;
 }
 
-void Main::createDescriptorSets() {
-	std::vector<VkDescriptorSetLayout> layouts(MAX_FRAMES_IN_FLIGHT, descriptorSetLayout);
-	VkDescriptorSetAllocateInfo allocInfo{};
-	allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-	allocInfo.descriptorPool = descriptorPool;
-	allocInfo.descriptorSetCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
-	allocInfo.pSetLayouts = layouts.data();
-
-	descriptorSets.resize(MAX_FRAMES_IN_FLIGHT);
-	if (vkAllocateDescriptorSets(device, &allocInfo, descriptorSets.data()) != VK_SUCCESS) {
-		throw std::runtime_error("failed to allocate descriptor sets!");
+void Main::createTextureImages() {
+	for (auto &pair : textures) {
+		const auto image = pair.second;
+		textureImages[pair.first] = createTextureImage(image.width, image.height, image.pixels);
 	}
-
-	for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-		VkDescriptorBufferInfo bufferInfo{};
-		bufferInfo.buffer = uniformBuffers[i];
-		bufferInfo.offset = 0;
-		bufferInfo.range = sizeof(UniformBufferObject);
-
-		VkDescriptorImageInfo imageInfo{};
-		imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-		imageInfo.imageView = textureImage.view;
-		imageInfo.sampler = textureSampler;
-
-		std::array<VkWriteDescriptorSet, 2> descriptorWrites{};
-		descriptorWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-		descriptorWrites[0].dstSet = descriptorSets[i];
-		descriptorWrites[0].dstBinding = 0;
-		descriptorWrites[0].dstArrayElement = 0;
-		descriptorWrites[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-		descriptorWrites[0].descriptorCount = 1;
-		descriptorWrites[0].pBufferInfo = &bufferInfo;
-
-		descriptorWrites[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-		descriptorWrites[1].dstSet = descriptorSets[i];
-		descriptorWrites[1].dstBinding = 1;
-		descriptorWrites[1].dstArrayElement = 0;
-		descriptorWrites[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-		descriptorWrites[1].descriptorCount = 1;
-		descriptorWrites[1].pImageInfo = &imageInfo;
-
-		vkUpdateDescriptorSets(device, static_cast<uint32_t>(descriptorWrites.size()), descriptorWrites.data(), 0, nullptr);
-	}
-
 }
 
 void Main::copyBufferToImage(VkBuffer buffer, VkImage image, uint32_t width, uint32_t height) {
