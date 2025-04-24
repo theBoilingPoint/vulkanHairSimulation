@@ -139,13 +139,12 @@ private:
 
 	std::vector<VulkanImage> swapChainImageViews;
 	std::unordered_map<std::string, VulkanImage> textureImages;
-	VulkanImage colorImage;
 	VulkanImage depthImage;
 	VulkanImage offscreenColorImage;
 	VulkanImage weightedColorImage;
 	VulkanImage weightedRevealImage;
 	// Given that we use multisampling for images before this step, we need to downsample it before blitting the result to the swapchain
-	VulkanImage swapChainImage;
+	VulkanImage downsampleImage;
 
 	// Opaque Objects
 	VkRenderPass opaqueObjectsRenderPass;
@@ -153,7 +152,6 @@ private:
 	VkPipelineLayout opaqueObjectsPipelineLayout;
 	VkPipeline opaqueObjectsPipeline;
 	// Transparent Objects
-	// TODO: remember to delete this when used
 	VkRenderPass transparentObjectsRenderPass;
 	VkFramebuffer transparentObjectsFramebuffer;
 	VkPipelineLayout weightedColorPipelineLayout;

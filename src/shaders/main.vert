@@ -30,6 +30,5 @@ void main() {
     fragColor = inColor;
     fragTexCoord = inTexCoord;
     cameraPosition = ubo.cameraPos;
-    // TODO: Do I need to flip the sign here?
     depth = (ubo.view * vec4(inPosition, 1.0)).z;
 }

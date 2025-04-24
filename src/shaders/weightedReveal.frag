@@ -10,9 +10,9 @@ layout(location = 0) out vec4 outColor;
 
 void main()
 {
-  vec4  accum  = subpassLoad(texColor, gl_SampleID);
-  float reveal = subpassLoad(texWeights, gl_SampleID).r;
+	vec4  accum  = subpassLoad(texColor, gl_SampleID);
+	float reveal = subpassLoad(texWeights, gl_SampleID).r;
 
-  // GL blend function: GL_ONE_MINUS_SRC_ALPHA, GL_SRC_ALPHA
-  outColor = vec4(accum.rgb / max(accum.a, 1e-5), reveal);
+	// GL blend function: GL_ONE_MINUS_SRC_ALPHA, GL_SRC_ALPHA
+	outColor = vec4(accum.rgb / max(accum.a, 1e-5), reveal);  
 }

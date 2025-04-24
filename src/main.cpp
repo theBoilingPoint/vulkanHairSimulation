@@ -92,8 +92,8 @@ void Main::cleanUp() {
 		vkDestroyBuffer(device, uniformBuffers[i], nullptr);
 		vkFreeMemory(device, uniformBuffersMemory[i], nullptr);
 	}
-	vkDestroyDescriptorPool(device, descriptorPool, nullptr);
-	vkDestroyDescriptorSetLayout(device, descriptorSetLayout, nullptr);
+	// vkDestroyDescriptorPool(device, descriptorPool, nullptr);
+	// vkDestroyDescriptorSetLayout(device, descriptorSetLayout, nullptr);
 	for (auto& pair : vertices) {
 		vkDestroyBuffer(device, pair.second.buffer, nullptr);
 		vkFreeMemory(device, pair.second.memory, nullptr);
@@ -665,7 +665,15 @@ void Main::createDescriptorSets() {
 		hairAlbedoInfo.imageView = textureImages["hair"].view;
 		hairAlbedoInfo.sampler = textureSampler;
 
-		std::array<VkWriteDescriptorSet, 3> descriptorWrites{};
+		VkDescriptorImageInfo oitWeightedColorInfo = {};
+		oitWeightedColorInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+		oitWeightedColorInfo.imageView = weightedColorImage.view;
+		oitWeightedColorInfo.sampler = VK_NULL_HANDLE;
+
+		VkDescriptorImageInfo oitWeightedRevealInfo = oitWeightedColorInfo;
+		oitWeightedRevealInfo.imageView = weightedRevealImage.view;
+
+		std::array<VkWriteDescriptorSet, 5> descriptorWrites{};
 		descriptorWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
 		descriptorWrites[0].dstSet = descriptorSets[i];
 		descriptorWrites[0].dstBinding = 0;
@@ -689,6 +697,22 @@ void Main::createDescriptorSets() {
 		descriptorWrites[2].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
 		descriptorWrites[2].descriptorCount = 1;
 		descriptorWrites[2].pImageInfo = &hairAlbedoInfo;
+
+		descriptorWrites[3].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+		descriptorWrites[3].dstSet = descriptorSets[i];
+		descriptorWrites[3].dstBinding = 3;
+		descriptorWrites[3].dstArrayElement = 0;
+		descriptorWrites[3].descriptorType = VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT;
+		descriptorWrites[3].descriptorCount = 1;
+		descriptorWrites[3].pImageInfo = &oitWeightedColorInfo;
+
+		descriptorWrites[4].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+		descriptorWrites[4].dstSet = descriptorSets[i];
+		descriptorWrites[4].dstBinding = 4;
+		descriptorWrites[4].dstArrayElement = 0;
+		descriptorWrites[4].descriptorType = VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT;
+		descriptorWrites[4].descriptorCount = 1;
+		descriptorWrites[4].pImageInfo = &oitWeightedRevealInfo;
 
 		vkUpdateDescriptorSets(device, static_cast<uint32_t>(descriptorWrites.size()), descriptorWrites.data(), 0, nullptr);
 	}
@@ -835,7 +859,6 @@ void Main::createOpaqueObjectsPipeline(std::vector<char>vertShaderCode, std::vec
 }
 
 void Main::createWeightedColorPipeline(std::vector<char>vertShaderCode, std::vector<char>fragShaderCode) {
-	// TODO: m_shaderSceneVert, m_shaderWeightedColorFrag
 	VkShaderModule vertShaderModule = createShaderModule(vertShaderCode);
 	VkShaderModule fragShaderModule = createShaderModule(fragShaderCode);
 
@@ -989,7 +1012,6 @@ void Main::createWeightedColorPipeline(std::vector<char>vertShaderCode, std::vec
 }
 
 void Main::createWeightedRevealPipeline(std::vector<char>vertShaderCode, std::vector<char>fragShaderCode) {
-	// TODO: m_shaderFullScreenTriangleVert, m_shaderWeightedCompositeFrag
 	VkShaderModule vertShaderModule = createShaderModule(vertShaderCode);
 	VkShaderModule fragShaderModule = createShaderModule(fragShaderCode);
 
@@ -1323,8 +1345,11 @@ void Main::createSwapchainFramebuffers() {
 	// Create swapchain frame buffers.
 	swapChainFramebuffers.resize(swapChainImageViews.size());
 	for (size_t i = 0; i < swapChainImageViews.size(); i++) {
-		std::array<VkImageView, 2> attachments = {
-			colorImage.view,
+		std::array<VkImageView, 4> attachments = {
+			// The order here needs to match the attachment order in transparentObjectsRenderPass
+			weightedColorImage.view,
+			weightedRevealImage.view,
+			offscreenColorImage.view,
 			depthImage.view
 		};
 
@@ -1332,7 +1357,7 @@ void Main::createSwapchainFramebuffers() {
 		framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
 		// TODO: Note that you should use the render pass whose subpass writes directly to the swapchain image view.
 		// So this might be transparentObjectRenderPass
-		framebufferInfo.renderPass = opaqueObjectsRenderPass;
+		framebufferInfo.renderPass = transparentObjectsRenderPass;
 		framebufferInfo.attachmentCount = static_cast<uint32_t>(attachments.size());
 		framebufferInfo.pAttachments = attachments.data();
 		framebufferInfo.width = swapChainExtent.width;
@@ -1340,7 +1365,7 @@ void Main::createSwapchainFramebuffers() {
 		framebufferInfo.layers = 1;
 
 		if (vkCreateFramebuffer(device, &framebufferInfo, nullptr, &swapChainFramebuffers[i]) != VK_SUCCESS) {
-			throw std::runtime_error("failed to create framebuffer!");
+			throw std::runtime_error("Failed to create swapchain framebuffers!");
 		}
 	}	
 }
@@ -1510,7 +1535,7 @@ void Main::recordSwapchainBlit(VkCommandBuffer commandBuffer, uint32_t imageInde
 
 	// So far we only handle multi-sampling
 	if (msaaSamples != 1) {
-		swapChainImage.transitionLayout(commandBuffer, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_ACCESS_TRANSFER_WRITE_BIT);
+		downsampleImage.transitionLayout(commandBuffer, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_ACCESS_TRANSFER_WRITE_BIT);
 		
 		// Resolve the MSAA image m_colorImage to m_downsampleImage
 		VkImageResolve resolveRegion = { 0 };  
@@ -1519,15 +1544,18 @@ void Main::recordSwapchainBlit(VkCommandBuffer commandBuffer, uint32_t imageInde
 		resolveRegion.dstSubresource = resolveRegion.srcSubresource;
 		resolveRegion.extent = { offscreenColorImage.width, offscreenColorImage.height, 1 };
 
-		vkCmdResolveImage(commandBuffer, offscreenColorImage.image, offscreenColorImage.currentLayout, swapChainImage.image, swapChainImage.currentLayout, 1, &resolveRegion);                      
+		vkCmdResolveImage(commandBuffer, offscreenColorImage.image, offscreenColorImage.currentLayout, downsampleImage.image, downsampleImage.currentLayout, 1, &resolveRegion);                      
 
-		swapChainImage.transitionLayout(commandBuffer, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_ACCESS_TRANSFER_READ_BIT);
+		downsampleImage.transitionLayout(commandBuffer, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_ACCESS_TRANSFER_READ_BIT);
+	}
+	else {
+		throw std::runtime_error("Not handled yet.");
 	}
 
 	// Blit the downsampled image to the swapchain
 	VkImageBlit blitRegion = { 0 };
-	blitRegion.srcOffsets[1].x = offscreenColorImage.width;
-	blitRegion.srcOffsets[1].y = offscreenColorImage.height;
+	blitRegion.srcOffsets[1].x = downsampleImage.width;
+	blitRegion.srcOffsets[1].y = downsampleImage.height;
 	blitRegion.srcOffsets[1].z = 1;
 	blitRegion.dstOffsets[1].x = swapChainExtent.width;
 	blitRegion.dstOffsets[1].y = swapChainExtent.height;
@@ -1538,7 +1566,7 @@ void Main::recordSwapchainBlit(VkCommandBuffer commandBuffer, uint32_t imageInde
 	blitRegion.srcSubresource.layerCount = 1;
 
 	cmdImageTransition(commandBuffer, swapChainImages[imageIndex], VK_IMAGE_ASPECT_COLOR_BIT, 0, VK_ACCESS_TRANSFER_WRITE_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-	vkCmdBlitImage(commandBuffer, swapChainImage.image, swapChainImage.currentLayout, swapChainImages[imageIndex], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blitRegion, VK_FILTER_NEAREST);                 
+	vkCmdBlitImage(commandBuffer, downsampleImage.image, downsampleImage.currentLayout, swapChainImages[imageIndex], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blitRegion, VK_FILTER_NEAREST);                 
 	cmdImageTransition(commandBuffer, swapChainImages[imageIndex], VK_IMAGE_ASPECT_COLOR_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, 0, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
 	
 	offscreenColorImage.transitionLayout(commandBuffer, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT);
@@ -1557,7 +1585,7 @@ void Main::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageInde
 	// Draw opaque objects.
 	recordOpaqueObjectsRenderPass(commandBuffer);
 	// Draw transparent objects.
-	// recordTransparentObjectsRenderPass(commandBuffer);
+	recordTransparentObjectsRenderPass(commandBuffer);
 	// Blit to swapchain.
 	recordSwapchainBlit(commandBuffer, imageIndex);
 
@@ -1653,12 +1681,11 @@ void Main::drawFrame() {
 }
 
 void Main::cleanupSwapChain() {
-	colorImage.destroy();
-	depthImage.destroy();
 	offscreenColorImage.destroy();
+	depthImage.destroy();
 	weightedColorImage.destroy();
 	weightedRevealImage.destroy();
-	swapChainImage.destroy();
+	downsampleImage.destroy();
 
 	// Destroy framebuffers.
 	for (size_t i = 0; i < swapChainFramebuffers.size(); i++) {
@@ -1672,6 +1699,8 @@ void Main::cleanupSwapChain() {
 	}
 
 	vkDestroySwapchainKHR(device, swapChain, nullptr);
+	vkDestroyDescriptorPool(device, descriptorPool, nullptr);
+	vkDestroyDescriptorSetLayout(device, descriptorSetLayout, nullptr);
 }
 
 void Main::recreateSwapChain() {
@@ -1690,6 +1719,10 @@ void Main::recreateSwapChain() {
 	createSwapchainImageViews();
 	createImageResources();
 	createFramebuffers();
+
+	createDescriptorPool();
+	createDescriptorSetLayout();
+	createDescriptorSets();
 }
 
 uint32_t Main::findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties) {
@@ -2118,19 +2151,17 @@ void Main::createImageResource(VulkanImage *image, VkFormat format, VkSampleCoun
 }
 
 void Main::createImageResources() {
-	createImageResource(&colorImage, swapChainImageFormat, msaaSamples, VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
+	createImageResource(&offscreenColorImage, VK_FORMAT_B8G8R8A8_SRGB, msaaSamples, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
+	transitionImage(offscreenColorImage, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT);
 
 	createImageResource(&depthImage, findDepthFormat(), msaaSamples, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, VK_IMAGE_ASPECT_DEPTH_BIT);
 	transitionImage(depthImage, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT);
 
-	createImageResource(&offscreenColorImage, VK_FORMAT_B8G8R8A8_SRGB, msaaSamples, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
-	transitionImage(offscreenColorImage, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT);
-	
 	createImageResource(&weightedColorImage, VK_FORMAT_R16G16B16A16_SFLOAT, msaaSamples, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
 	transitionImage(weightedColorImage, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT);
 
 	createImageResource(&weightedRevealImage, VK_FORMAT_R16_SFLOAT, msaaSamples, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
 	transitionImage(weightedRevealImage, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT);
 
-	createImageResource(&swapChainImage, offscreenColorImage.format, VK_SAMPLE_COUNT_1_BIT, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
+	createImageResource(&downsampleImage, offscreenColorImage.format, VK_SAMPLE_COUNT_1_BIT, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
 }
