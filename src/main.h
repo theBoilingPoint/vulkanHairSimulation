@@ -12,6 +12,7 @@
 #include <stdexcept>
 #include <cstdlib>
 #include <vector>
+#include <array>
 #include <set>
 #include <map>
 #include <optional>
@@ -151,6 +152,7 @@ private:
 	VkFramebuffer opaqueObjectsFramebuffer;
 	VkPipelineLayout opaqueObjectsPipelineLayout;
 	VkPipeline opaqueObjectsPipeline;
+
 	// Transparent Objects
 	VkRenderPass transparentObjectsRenderPass;
 	VkFramebuffer transparentObjectsFramebuffer;

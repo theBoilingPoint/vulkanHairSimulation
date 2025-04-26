@@ -2,13 +2,16 @@
 
 layout(binding = 2) uniform sampler2D albedoTexSampler;
 
-layout(location = 0) in vec3 inPositionWorld;
-layout(location = 1) in vec3 inNormal;
-layout(location = 2) in vec3 fragColor;
-layout(location = 3) in vec2 fragTexCoord;
-layout(location = 4) in vec3 cameraPosition;
-// Z coordinate after applying the view matrix (larger = further away)
-layout(location = 5) in float inDepth;
+struct VertexAttributes {
+    vec3 position;
+    vec3 normal;
+    vec3 color;
+    vec2 texCoord;
+    vec3 cameraPosition;
+    float depth;
+};
+
+layout(location = 0) in VertexAttributes inVertexAttributes;
 
 layout(location = 0) out vec4 outColor;
 layout(location = 1) out float outReveal;
@@ -39,9 +42,11 @@ vec4 shading(vec4 albedo, vec3 normal)
 }
 
 void main() {
-	vec4 albedo = texture(albedoTexSampler, fragTexCoord);
-	vec4 color = shading(albedo, inNormal);
-	color.rgb *= color.a;  // Premultiply it
+	vec4 albedo = texture(albedoTexSampler, inVertexAttributes.texCoord);
+
+	if (albedo.a < 0.01) {
+		discard;
+	}
 
 	// Insert your favorite weighting function here. The color-based factor
 	// avoids color pollution from the edges of wispy clouds. The z-based
@@ -50,7 +55,13 @@ void main() {
 	// The depth functions in the paper want a camera-space depth of 0.1 < z < 500,
 	// but the scene at the moment uses a range of about 0.01 to 50, so multiply
 	// by 10 to get an adjusted depth:
-	const float depthZ = -inDepth * 10.0f;
+
+	//vec4 color = shading(albedo, inVertexAttributes.normal);
+	//color.rgb *= color.a;  // Premultiply it
+	vec3 tmp = albedo.rgb * albedo.a;
+	vec4 color = vec4(tmp, albedo.a);
+
+	const float depthZ = inVertexAttributes.depth * 10.0f; // Z coordinate after applying the view matrix (larger = further away)
 
 	const float distWeight = clamp(0.03 / (1e-5 + pow(depthZ / 200, 4.0)), 1e-2, 3e3);
 

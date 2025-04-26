@@ -16,19 +16,23 @@ layout(location = 1) in vec3 inNormal;
 layout(location = 2) in vec3 inColor;
 layout(location = 3) in vec2 inTexCoord;
 
-layout(location = 0) out vec3 outPositionWorld;
-layout(location = 1) out vec3 outNormal;
-layout(location = 2) out vec3 fragColor;
-layout(location = 3) out vec2 fragTexCoord;
-layout(location = 4) out vec3 cameraPosition;
-layout(location = 5) out float depth;
+struct VertexAttributes {
+    vec3 position;
+    vec3 normal;
+    vec3 color;
+    vec2 texCoord;
+    vec3 cameraPosition;
+    float depth;
+};
+
+layout(location = 0) out VertexAttributes outVertexAttributes;
 
 void main() {
     gl_Position = ubo.proj * ubo.view * ubo.model * vec4(inPosition, 1.0);
-    outPositionWorld = (ubo.model * vec4(inPosition, 1.0)).xyz;
-    outNormal = normalize(inNormal);
-    fragColor = inColor;
-    fragTexCoord = inTexCoord;
-    cameraPosition = ubo.cameraPos;
-    depth = (ubo.view * vec4(inPosition, 1.0)).z;
+    outVertexAttributes.position = inPosition;
+    outVertexAttributes.normal = inNormal;
+    outVertexAttributes.color = inColor;
+    outVertexAttributes.texCoord = inTexCoord;
+    outVertexAttributes.cameraPosition = ubo.cameraPos;
+    outVertexAttributes.depth = (ubo.view * vec4(inPosition, 1.0)).z;
 }

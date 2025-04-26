@@ -2,11 +2,16 @@
 
 layout(binding = 1) uniform sampler2D albedoTexSampler;
 
-layout(location = 0) in vec3 inPositionWorld;
-layout(location = 1) in vec3 inNormal;
-layout(location = 2) in vec3 fragColor;
-layout(location = 3) in vec2 fragTexCoord;
-layout(location = 4) in vec3 cameraPosition;
+struct VertexAttributes {
+    vec3 position;
+    vec3 normal;
+    vec3 color;
+    vec2 texCoord;
+    vec3 cameraPosition;
+    float depth;
+};
+
+layout(location = 0) in VertexAttributes inVertexAttributes;
 
 layout(location = 0) out vec4 outColor;
 
@@ -64,34 +69,35 @@ float distributionGGX(vec3 N, vec3 H, float a)
 }
 
 void main() {
-    vec4 albedo = texture(albedoTexSampler, fragTexCoord);
+    vec4 albedo = texture(albedoTexSampler, inVertexAttributes.texCoord);
     float metallic = 1.0;
     float roughness = 0.25;
     float ao = 1.0;
     vec3 F0 = vec3(0.04); 
     F0 = mix(F0, albedo.xyz, metallic);
 
-    vec3 wo = normalize(cameraPosition - inPositionWorld);
+    vec3 wo = normalize(inVertexAttributes.cameraPosition - inVertexAttributes.position.xyz);
     vec3 diffuse = albedo.xyz * ONE_OVER_PI;
     vec3 Lo = vec3(0.0);
 
     for (int i = 0; i < light_pos.length(); i++) {
-        vec3 wi = normalize(light_pos[i] - inPositionWorld);
+        vec3 wi = normalize(light_pos[i] - inVertexAttributes.position.xyz);
         vec3 halfVector = normalize(wi + wo);
-        float distance = length(light_pos[i] - inPositionWorld);
+        float distance = length(light_pos[i] - inVertexAttributes.position.xyz);
         float attenuation = 1.0 / (distance * distance);
         vec3 radiance = light_col[i] * attenuation;
         vec3 F = fresnelSchlick(max(dot(halfVector, wo), 0.0), F0);
-        float D = distributionGGX(inNormal, halfVector, roughness);
-        float G = geometrySmith(inNormal, wo, wi, roughness);
+        float D = distributionGGX(inVertexAttributes.normal, halfVector, roughness);
+        float G = geometrySmith(inVertexAttributes.normal, wo, wi, roughness);
         vec3 numerator    = D * G * F;
-        float denominator = 4.0 * max(dot(inNormal, wo), 0.0) * max(dot(inNormal, wi), 0.0)  + 0.0001;
+        float denominator = 4.0 * max(dot(inVertexAttributes.normal, wo), 0.0) * max(dot(inVertexAttributes.normal, wi), 0.0) + 0.0001;
         vec3 specular     = numerator / denominator; 
 
         vec3 kd = vec3(1.0) - F;
         kd *= 1.0 - metallic;
 
-        float NdotL = max(dot(inNormal, wi), 0.0);
+        // float NdotL = max(dot(inNormal, wi), 0.0);
+        float NdotL = max(dot(inVertexAttributes.normal, wi), 0.0);
         Lo += (kd * diffuse + specular) * radiance * NdotL;
     }
 
