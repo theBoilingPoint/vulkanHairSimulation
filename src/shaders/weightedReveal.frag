@@ -1,10 +1,8 @@
 #version 450
 #extension GL_KHR_vulkan_glsl : enable
 
-// IMG_WEIGHTED_COLOR, IMG_WEIGHTED_REVEAL are the binding locations (i.e. a number)
-// Given my definition of the descriptor set, IMG_WEIGHTED_COLOR = 3 and IMG_WEIGHTED_REVEAL = 4
-layout(input_attachment_index = 0, set = 0, binding = 3) uniform subpassInputMS texColor;
-layout(input_attachment_index = 1, set = 0, binding = 4) uniform subpassInputMS texWeights;
+layout(input_attachment_index = 0, set = SET_GLOBAL, binding = BIND_WBOIT_COLOR) uniform subpassInputMS texColor;
+layout(input_attachment_index = 1, set = SET_GLOBAL, binding = BIND_WBOIT_REVEAL) uniform subpassInputMS texWeights;
 
 layout(location = 0) out vec4 outColor;
 

@@ -1,6 +1,6 @@
 #version 450
 
-layout(binding = 2) uniform sampler2D albedoTexSampler;
+layout(binding = BIND_HAIR_ALBEDO) uniform sampler2D albedo;
 
 struct VertexAttributes {
     vec3 position;
@@ -42,7 +42,7 @@ vec4 shading(vec4 albedo, vec3 normal)
 }
 
 void main() {
-	vec4 albedo = texture(albedoTexSampler, inVertexAttributes.texCoord);
+	vec4 albedo = texture(albedo, inVertexAttributes.texCoord);
 
 	if (albedo.a < 0.01) {
 		discard;

@@ -3,8 +3,8 @@
 // That means that the index after it must be at least 2 higher:
 // layout(location = 0) in dvec3 inPosition;
 // layout(location = 2) in vec3 inColor;
-
-layout(binding = 0) uniform UniformBufferObject {
+// Binding slots defined in bindings.inc
+layout(binding = BIND_UBO) uniform UniformBufferObject {
     mat4 model;
     mat4 view;
     mat4 proj;

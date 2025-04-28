@@ -1,6 +1,6 @@
 #version 450
 
-layout(binding = 1) uniform sampler2D albedoTexSampler;
+layout(binding = BIND_HEAD_ALBEDO) uniform sampler2D albedo;
 
 struct VertexAttributes {
     vec3 position;
@@ -69,7 +69,7 @@ float distributionGGX(vec3 N, vec3 H, float a)
 }
 
 void main() {
-    vec4 albedo = texture(albedoTexSampler, inVertexAttributes.texCoord);
+    vec4 albedo = texture(albedo, inVertexAttributes.texCoord);
     float metallic = 1.0;
     float roughness = 0.25;
     float ao = 1.0;
