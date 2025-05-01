@@ -1,4 +1,5 @@
 #version 450
+#extension GL_KHR_vulkan_glsl : enable
 // It is important to know that some types, like dvec3 64 bit vectors, use multiple slots. 
 // That means that the index after it must be at least 2 higher:
 // layout(location = 0) in dvec3 inPosition;
@@ -11,16 +12,16 @@ layout(binding = BIND_UBO) uniform UniformBufferObject {
     vec3 cameraPos;
 } ubo;
 
-layout(location = 0) in vec3 inPosition;
-layout(location = 1) in vec3 inNormal;
-layout(location = 2) in vec3 inColor;
-layout(location = 3) in vec2 inTexCoord;
+layout(location = BIND_VERTEX_POSITION) in vec4 inPosition;
+layout(location = BIND_VERTEX_NORMAL) in vec4 inNormal;
+layout(location = BIND_VERTEX_TEXCOORD) in vec2 inTexCoord;
+layout(location = BIND_VERTEX_COLOR) in vec4 inColor;
 
 struct VertexAttributes {
-    vec3 position;
-    vec3 normal;
-    vec3 color;
+    vec4 position;
+    vec4 normal;
     vec2 texCoord;
+    vec4 color;
     vec3 cameraPosition;
     float depth;
 };
@@ -28,11 +29,11 @@ struct VertexAttributes {
 layout(location = 0) out VertexAttributes outVertexAttributes;
 
 void main() {
-    gl_Position = ubo.proj * ubo.view * ubo.model * vec4(inPosition, 1.0);
+    gl_Position = ubo.proj * ubo.view * ubo.model * inPosition;
     outVertexAttributes.position = inPosition;
     outVertexAttributes.normal = inNormal;
     outVertexAttributes.color = inColor;
     outVertexAttributes.texCoord = inTexCoord;
     outVertexAttributes.cameraPosition = ubo.cameraPos;
-    outVertexAttributes.depth = (ubo.view * vec4(inPosition, 1.0)).z;
+    outVertexAttributes.depth = (ubo.view * inPosition).z;
 }

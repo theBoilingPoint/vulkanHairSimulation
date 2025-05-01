@@ -1,7 +1,10 @@
-#pragma once
+﻿#pragma once
 
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
+
+#define GLM_ENABLE_EXPERIMENTAL
+#include <glm/gtx/norm.hpp>
 
 #define TINYOBJLOADER_IMPLEMENTATION
 #include <tiny_obj_loader.h>
@@ -88,6 +91,16 @@ std::string compileShader(const std::string path, const std::string shaderName, 
 	// Insert bindings after the #version line
 	std::string fullCode = body.substr(0, versionEnd + 1) + bindings + "\n" + body.substr(versionEnd + 1);
 	std::vector<uint32_t> SPIRV;
+
+	// Uncomment the code below to dump the full shader code to a file for debugging.
+//#ifdef _DEBUG
+//	{
+//		static int dumpCount = 0;
+//		std::ofstream out("shaderDump_" + std::to_string(dumpCount++) + ".glsl",
+//			std::ios::binary);
+//		out << fullCode;
+//	}
+//#endif
 
 	/* Compile the modified shader code. */
 	switch (type) {
@@ -207,13 +220,15 @@ std::pair<std::vector<Vertex>, std::vector<uint32_t>> loadObj(const std::string&
 			vertex.pos = {
 				attrib.vertices[3 * index.vertex_index + 0],
 				attrib.vertices[3 * index.vertex_index + 1],
-				attrib.vertices[3 * index.vertex_index + 2]
+				attrib.vertices[3 * index.vertex_index + 2],
+				1.0f
 			};
 
 			vertex.normal = {
 				attrib.normals[3 * index.normal_index + 0],
 				attrib.normals[3 * index.normal_index + 1],
-				attrib.normals[3 * index.normal_index + 2]
+				attrib.normals[3 * index.normal_index + 2],
+				0.0f
 			};
 
 			// The OBJ format assumes a coordinate system where a vertical coordinate of 0 means the bottom of the image, 
@@ -223,7 +238,7 @@ std::pair<std::vector<Vertex>, std::vector<uint32_t>> loadObj(const std::string&
 				1.0f - attrib.texcoords[2 * index.texcoord_index + 1]
 			};
 
-			vertex.color = { 1.0f, 1.0f, 1.0f };
+			vertex.color = glm::vec4(1.0f);
 
 			if (uniqueVertices.count(vertex) == 0) {
 				uniqueVertices[vertex] = static_cast<uint32_t>(vertices.size());

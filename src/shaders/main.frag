@@ -3,10 +3,10 @@
 layout(binding = BIND_HEAD_ALBEDO) uniform sampler2D albedo;
 
 struct VertexAttributes {
-    vec3 position;
-    vec3 normal;
-    vec3 color;
+    vec4 position;
+    vec4 normal;
     vec2 texCoord;
+    vec4 color;
     vec3 cameraPosition;
     float depth;
 };
@@ -87,17 +87,17 @@ void main() {
         float attenuation = 1.0 / (distance * distance);
         vec3 radiance = light_col[i] * attenuation;
         vec3 F = fresnelSchlick(max(dot(halfVector, wo), 0.0), F0);
-        float D = distributionGGX(inVertexAttributes.normal, halfVector, roughness);
-        float G = geometrySmith(inVertexAttributes.normal, wo, wi, roughness);
+        float D = distributionGGX(inVertexAttributes.normal.xyz, halfVector, roughness);
+        float G = geometrySmith(inVertexAttributes.normal.xyz, wo, wi, roughness);
         vec3 numerator    = D * G * F;
-        float denominator = 4.0 * max(dot(inVertexAttributes.normal, wo), 0.0) * max(dot(inVertexAttributes.normal, wi), 0.0) + 0.0001;
+        float denominator = 4.0 * max(dot(inVertexAttributes.normal.xyz, wo), 0.0) * max(dot(inVertexAttributes.normal.xyz, wi), 0.0) + 0.0001;
         vec3 specular     = numerator / denominator; 
 
         vec3 kd = vec3(1.0) - F;
         kd *= 1.0 - metallic;
 
         // float NdotL = max(dot(inNormal, wi), 0.0);
-        float NdotL = max(dot(inVertexAttributes.normal, wi), 0.0);
+        float NdotL = max(dot(inVertexAttributes.normal.xyz, wi), 0.0);
         Lo += (kd * diffuse + specular) * radiance * NdotL;
     }
 

@@ -18,6 +18,19 @@ Descriptor::Descriptor(
 
 Descriptor::~Descriptor() {}
 
+void Descriptor::create() {
+	createDescriptorPool();
+	createDescriptorSetLayout();
+	allocateDescriptorSets();
+	updateDescriptorSets();
+}
+
+void Descriptor::destroy() {
+	bindings.clear();
+	vkDestroyDescriptorPool(*device, descriptorPool, nullptr);
+	vkDestroyDescriptorSetLayout(*device, descriptorSetLayout, nullptr);
+}
+
 void Descriptor::addDescriptorSetLayoutBinding(
 	uint32_t binding, 
 	VkDescriptorType type, 
@@ -145,10 +158,4 @@ void Descriptor::updateDescriptorSets() {
 	vkUpdateDescriptorSets(*device,
 		static_cast<uint32_t>(writes.size()), writes.data(),
 		0, nullptr);
-}
-
-void Descriptor::destroy() {
-	bindings.clear();
-	vkDestroyDescriptorPool(*device, descriptorPool, nullptr);
-	vkDestroyDescriptorSetLayout(*device, descriptorSetLayout, nullptr);
 }

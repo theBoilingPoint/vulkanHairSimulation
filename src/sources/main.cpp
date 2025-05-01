@@ -582,14 +582,12 @@ VkShaderModule Main::createShaderModule(const std::vector<char>& code) {
 }
 
 void Main::createDescriptor() {
-	// Create descriptor pool.
 	descriptor = Descriptor(
 		&device,
-		1,
-		textureImages.size(),
-		2
+		1, // numUniformBuffers
+		textureImages.size(), // numTextureBuffers
+		2 // numInputBuffers
 	);
-	descriptor.createDescriptorPool();
 
 	// Add descriptor bindings.
 	descriptor.addDescriptorSetLayoutBinding(
@@ -612,27 +610,20 @@ void Main::createDescriptor() {
 		{},
 		weightedRevealImage.view
 	);
-	descriptor.addDescriptorSetLayoutBinding(
-		BIND_HEAD_ALBEDO,
-		VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-		VK_SHADER_STAGE_FRAGMENT_BIT,
-		{},
-		textureImages[SET_GLOBAL + "_" + BIND_HEAD_ALBEDO].view,
-		textureSampler
-	);
-	descriptor.addDescriptorSetLayoutBinding(
-		BIND_HAIR_ALBEDO,
-		VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-		VK_SHADER_STAGE_FRAGMENT_BIT,
-		{},
-		textureImages[SET_GLOBAL + "_" + BIND_HAIR_ALBEDO].view,
-		textureSampler
-	);
 
-	// Create descriptor set layout and allocate descriptor sets.
-	descriptor.createDescriptorSetLayout();
-	descriptor.allocateDescriptorSets();
-	descriptor.updateDescriptorSets();
+	for (auto& pair : textureImages) {
+		auto tmp = pair.first.substr(pair.first.find('_') + 1);
+		descriptor.addDescriptorSetLayoutBinding(
+			static_cast<uint32_t>(std::stoul(tmp)),
+			VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+			VK_SHADER_STAGE_FRAGMENT_BIT,
+			{},
+			pair.second.view,
+			textureSampler
+		);
+	}
+
+	descriptor.create();
 }
 
 void Main::createOpaqueObjectsPipeline(std::vector<char>vertShaderCode, std::vector<char>fragShaderCode) {
@@ -1025,7 +1016,6 @@ void Main::createWeightedRevealPipeline(std::vector<char>vertShaderCode, std::ve
 	VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
 	pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
 	pipelineLayoutInfo.setLayoutCount = 1;
-	/*pipelineLayoutInfo.pSetLayouts = &descriptorSetLayout;*/
 	pipelineLayoutInfo.pSetLayouts = &descriptor.descriptorSetLayout;
 	pipelineLayoutInfo.pushConstantRangeCount = 0;
 	pipelineLayoutInfo.pPushConstantRanges = nullptr;

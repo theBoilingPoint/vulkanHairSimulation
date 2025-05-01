@@ -9,6 +9,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 
 #include <iostream>
+#include <string>
 #include <stdexcept>
 #include <cstdlib>
 #include <vector>

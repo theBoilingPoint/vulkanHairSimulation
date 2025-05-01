@@ -32,6 +32,11 @@ private:
 	std::vector<DescriptorBinding> bindings;
 	VkDescriptorPool descriptorPool;
 
+	void createDescriptorSetLayout();
+	void createDescriptorPool();
+	void allocateDescriptorSets();
+	void updateDescriptorSets();
+
 public:
 	std::vector<VkDescriptorSet> descriptorSets;
 	VkDescriptorSetLayout descriptorSetLayout;
@@ -40,6 +45,7 @@ public:
 	Descriptor(VkDevice *device, uint32_t numUniformBuffers, uint32_t numTextureBuffers, uint32_t numInputBuffers);
 	~Descriptor();
 
+	void create();
 	void destroy();
 
 	void addDescriptorSetLayoutBinding(
@@ -51,8 +57,4 @@ public:
 		VkImageView imageView = VK_NULL_HANDLE,
 		VkSampler sampler = VK_NULL_HANDLE
 	);
-	void createDescriptorSetLayout();
-	void createDescriptorPool();
-	void allocateDescriptorSets();
-	void updateDescriptorSets();
 };

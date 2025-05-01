@@ -7,21 +7,25 @@
 #include <glm/gtx/hash.hpp>
 #include <glm/glm.hpp>
 
+#include "bindings.inc"
 #include <vector>
 
 struct Vertex {
-    glm::vec3 pos;
-	glm::vec3 normal;
-    glm::vec3 color;
+    glm::vec4 pos;
+	glm::vec4 normal;
     glm::vec2 texCoord;
-
+    glm::vec4 color;
+    
     bool operator==(const Vertex& other) const {
-        return pos == other.pos && color == other.color && texCoord == other.texCoord;
+        return pos == other.pos && 
+			normal == other.normal &&
+            color == other.color && 
+            texCoord == other.texCoord;
     }
 
     static std::vector<VkVertexInputBindingDescription> getBindingDescription() {
         VkVertexInputBindingDescription bindingDescription{};
-        bindingDescription.binding = 0;
+        bindingDescription.binding = SET_GLOBAL;
         bindingDescription.stride = sizeof(Vertex);
         bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
 
@@ -33,11 +37,10 @@ struct Vertex {
     static std::vector<VkVertexInputAttributeDescription> getAttributeDescriptions() {
         std::vector<VkVertexInputAttributeDescription> attributeDescriptions;
 
-		// location, binding, format, offset
-		attributeDescriptions.push_back({ 0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, pos) });
-		attributeDescriptions.push_back({ 1, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, normal) });
-		attributeDescriptions.push_back({ 2, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, color) });
-		attributeDescriptions.push_back({ 3, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex, texCoord) });
+		attributeDescriptions.push_back({ BIND_VERTEX_POSITION, SET_GLOBAL, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(Vertex, pos) });
+		attributeDescriptions.push_back({ BIND_VERTEX_NORMAL, SET_GLOBAL, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(Vertex, normal) });
+        attributeDescriptions.push_back({ BIND_VERTEX_TEXCOORD, SET_GLOBAL, VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex, texCoord) });
+		attributeDescriptions.push_back({ BIND_VERTEX_COLOR, SET_GLOBAL, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(Vertex, color) });
 
         return attributeDescriptions;
     }

@@ -113,8 +113,15 @@ int main() {
 		{"hair", loadModel("assets/models/obj/ponytail/hair.obj")}
 	};
 	std::unordered_map<std::string, Image> textures = {
-		{SET_GLOBAL + "_" + BIND_HEAD_ALBEDO, loadImage("assets/textures/ponytail/Head BaseColor.png")},
-		{SET_GLOBAL + "_" + BIND_HAIR_ALBEDO, loadImage("assets/textures/ponytail/T_Hair_Random Color.png")}
+		{std::to_string(SET_GLOBAL) + "_" + std::to_string(BIND_HEAD_ALBEDO), loadImage("assets/textures/ponytail/Head BaseColor.png")},
+		{std::to_string(SET_GLOBAL) + "_" + std::to_string(BIND_HAIR_ALBEDO), loadImage("assets/textures/ponytail/T_Hair_Basecolor.png")},
+		{std::to_string(SET_GLOBAL) + "_" + std::to_string(BIND_HAIR_NORMAL), loadImage("assets/textures/ponytail/T_Hair_Normal.png")},
+		{std::to_string(SET_GLOBAL) + "_" + std::to_string(BIND_HAIR_DIRECTION), loadImage("assets/textures/ponytail/T_Hair_Directional.png")},
+		{std::to_string(SET_GLOBAL) + "_" + std::to_string(BIND_HAIR_AO), loadImage("assets/textures/ponytail/T_Hair_AO.png")},
+		{std::to_string(SET_GLOBAL) + "_" + std::to_string(BIND_HAIR_DEPTH), loadImage("assets/textures/ponytail/T_Hair_Depth.png")},
+		{std::to_string(SET_GLOBAL) + "_" + std::to_string(BIND_HAIR_FLOW), loadImage("assets/textures/ponytail/T_Hair_Flow.png")},
+		{std::to_string(SET_GLOBAL) + "_" + std::to_string(BIND_HAIR_ROOT), loadImage("assets/textures/ponytail/T_Hair_Root.png")},
+		{std::to_string(SET_GLOBAL) + "_" + std::to_string(BIND_HAIR_ID), loadImage("assets/textures/ponytail/T_Hair_ID.png")}
 	};
 
 	App app;
