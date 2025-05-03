@@ -114,7 +114,10 @@ int main() {
 	};
 	std::unordered_map<std::string, Image> textures = {
 		{std::to_string(SET_GLOBAL) + "_" + std::to_string(BIND_HEAD_ALBEDO), loadImage("assets/textures/ponytail/Head BaseColor.png")},
+
 		{std::to_string(SET_GLOBAL) + "_" + std::to_string(BIND_HAIR_ALBEDO), loadImage("assets/textures/ponytail/T_Hair_Basecolor.png")},
+		//{std::to_string(SET_GLOBAL) + "_" + std::to_string(BIND_HAIR_ALBEDO), loadImage("assets/textures/ponytail/T_Hair_Random Color.png")},
+		
 		{std::to_string(SET_GLOBAL) + "_" + std::to_string(BIND_HAIR_NORMAL), loadImage("assets/textures/ponytail/T_Hair_Normal.png")},
 		{std::to_string(SET_GLOBAL) + "_" + std::to_string(BIND_HAIR_DIRECTION), loadImage("assets/textures/ponytail/T_Hair_Directional.png")},
 		{std::to_string(SET_GLOBAL) + "_" + std::to_string(BIND_HAIR_AO), loadImage("assets/textures/ponytail/T_Hair_AO.png")},

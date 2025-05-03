@@ -810,7 +810,7 @@ void Main::createWeightedColorPipeline(std::vector<char>vertShaderCode, std::vec
 	rasterizer.rasterizerDiscardEnable = VK_FALSE;
 	rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
 	rasterizer.lineWidth = 1.0f;
-	rasterizer.cullMode = VK_CULL_MODE_NONE;
+	rasterizer.cullMode = VK_CULL_MODE_NONE; 
 	rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
 	rasterizer.depthBiasEnable = VK_FALSE;
 	rasterizer.depthBiasConstantFactor = 0.0f;
@@ -1359,7 +1359,7 @@ void Main::recordOpaqueObjectsRenderPass(VkCommandBuffer commandBuffer) {
 	renderPassInfo.renderArea.extent.height = offscreenColorImage.height;
 
 	std::array<VkClearValue, 2> clearValues = {};
-	clearValues[0].color = { 0.0f, 0.0f, 0.0f, 0.0f };  
+	clearValues[0].color = { 0.5f, 0.5f, 0.5f, 1.0f };  
 	clearValues[1].depthStencil = { 1.0f, 0 };               
 	renderPassInfo.clearValueCount = static_cast<uint32_t>(clearValues.size());
 	renderPassInfo.pClearValues = clearValues.data();
@@ -1404,10 +1404,7 @@ void Main::recordTransparentObjectsRenderPass(VkCommandBuffer commandBuffer) {
 	renderPassInfo.renderArea.extent.width = weightedColorImage.width;
 	renderPassInfo.renderArea.extent.height = weightedRevealImage.height;
 	std::array<VkClearValue, 2> clearValues;
-	clearValues[0].color.float32[0] = 0.0f;
-	clearValues[0].color.float32[1] = 0.0f;
-	clearValues[0].color.float32[2] = 0.0f;
-	clearValues[0].color.float32[3] = 0.0f;
+	clearValues[0].color = { 0.0f, 0.0f, 0.0f, 0.0f }; 
 	clearValues[1].color.float32[0] = 1.0f;  // Initially, all pixels show through all the way (reveal = 100%)
 	renderPassInfo.clearValueCount = static_cast<uint32_t>(clearValues.size());
 	renderPassInfo.pClearValues = clearValues.data();
@@ -2053,7 +2050,8 @@ void Main::createImageResource(VulkanImage *image, VkFormat format, VkSampleCoun
 }
 
 void Main::createImageResources() {
-	createImageResource(&offscreenColorImage, VK_FORMAT_B8G8R8A8_SRGB, msaaSamples, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
+	//VK_FORMAT_B8G8R8A8_SRGB
+	createImageResource(&offscreenColorImage, VK_FORMAT_R8G8B8A8_SRGB, msaaSamples, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
 	transitionImage(offscreenColorImage, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT);
 
 	createImageResource(&depthImage, findDepthFormat(), msaaSamples, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, VK_IMAGE_ASPECT_DEPTH_BIT);

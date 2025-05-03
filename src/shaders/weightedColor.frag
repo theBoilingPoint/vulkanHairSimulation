@@ -22,8 +22,24 @@ layout(location = 0) in VertexAttributes inVertexAttributes;
 layout(location = 0) out vec4 outColor;
 layout(location = 1) out float outReveal;
 
-const float alphaMin = 0.2;
-const float alphaWidth = 0.3;
+// Parallax mapping 
+const float heightScale = 0.005; 
+const float minLayers = 10.0;
+const float maxLayers = 32.0;
+
+// Noise parameters
+const float noiseScale   = 60.0;   // spatial frequency of the sparkles
+const float cutoffLow    = 0.65;   // controls how many pixels sparkle
+const float cutoffHigh   = 0.95;   // controls sparkle fall‑off
+
+// Hair shading
+const float primaryShift = 0.3f; // approx 0.1 – 0.2
+const float secondaryShift = -0.3f; // approx −0.1 – −0.2
+const float specExp1 = 20;         // approx 20–40
+const float specExp2 = 60;         // approx 60–80
+
+// WBOIT parameter
+const float distanceWeightExp = -10.0f;
 
 // Point lights
 const vec3 light_pos[4] = vec3[](vec3(-10, 10, 10),
@@ -35,6 +51,52 @@ const vec3 light_col[4] = vec3[](vec3(300.f, 300.f, 300.f),
                                 vec3(300.f, 300.f, 300.f),
                                 vec3(300.f, 300.f, 300.f),
                                 vec3(300.f, 300.f, 300.f));
+
+// -----------------------------------------------------------------------------
+// Tiny hash & value–noise -----------------------------------------------------
+// -----------------------------------------------------------------------------
+float hash12(vec2 p)            // 2‑D → 1‑D hash
+{
+    // large, odd constants minimise visible patterns
+    const vec2 k = vec2(127.1, 311.7);
+    return fract(sin(dot(p, k)) * 43758.5453123);
+}
+
+/* Classic 2‑D value noise (one octave). */
+float valueNoise(vec2 p)
+{
+    vec2  i = floor(p);               // integer lattice cell
+    vec2  f = fract(p);               // local position in cell  [0,1)
+
+    // noise at the four corners
+    float a = hash12(i);
+    float b = hash12(i + vec2(1.0, 0.0));
+    float c = hash12(i + vec2(0.0, 1.0));
+    float d = hash12(i + vec2(1.0, 1.0));
+
+    // smooth interpolation (quintic curve)
+    vec2  u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+
+    return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
+}
+
+/* Four‑octave fBm for richer structure.  
+ * ‘scale’ controls frequency; larger = finer sparkle. */
+float fbmNoise(vec2 p, float scale)
+{
+    p *= scale;
+    float v   = 0.0;
+    float amp = 0.5;
+
+    for (int i = 0; i < 4; ++i)        // 4 octaves is usually enough
+    {
+        v   += valueNoise(p) * amp;
+        p   *= 2.0;                    // next octave
+        amp *= 0.5;
+    }
+    return v;
+}
+
 
 mat3 computeTBN(in vec3 normal) {
 	// Screen-space derivatives of position and UV
@@ -63,76 +125,158 @@ mat3 computeTBN(in vec3 normal) {
 	return mat3(t, b, n);
 }
 
-// Kajiya-Kay diffuse + dual-lobe spec (simplified Marschner)
-vec3 shadeHair(vec3 N, vec3 T, vec3 V, vec3 L,
-               vec3 baseCol, float roughness, float shift)
+vec2 parallaxMapping(vec2 texCoords, vec3 viewDir)
+{ 
+    // number of depth layers
+    const float numLayers = mix(maxLayers, minLayers, max(dot(vec3(0.0, 0.0, 1.0), viewDir), 0.0));
+    // calculate the size of each layer
+    float layerDepth = 1.0 / numLayers;
+    // depth of current layer
+    float currentLayerDepth = 0.0;
+    // the amount to shift the texture coordinates per layer (from vector P)
+    vec2 P = viewDir.xy * heightScale; 
+    vec2 deltaTexCoords = P / numLayers;
+  
+    // get initial values
+    vec2  currentTexCoords     = texCoords;
+    float currentDepthMapValue = texture(texDepth, currentTexCoords).r;
+  
+    while(currentLayerDepth < currentDepthMapValue)
+    {
+        // shift texture coordinates along direction of P
+        currentTexCoords -= deltaTexCoords;
+        // get depthmap value at current texture coordinates
+        currentDepthMapValue = texture(texDepth, currentTexCoords).r;  
+        // get depth of next layer
+        currentLayerDepth += layerDepth;  
+    }
+
+    // get texture coordinates before collision (reverse operations)
+    vec2 prevTexCoords = currentTexCoords + deltaTexCoords;
+
+    // get depth after and before collision for linear interpolation
+    float afterDepth  = currentDepthMapValue - currentLayerDepth;
+    float beforeDepth = texture(texDepth, prevTexCoords).r - currentLayerDepth + layerDepth;
+ 
+    // interpolation of texture coordinates
+    float weight = afterDepth / (afterDepth - beforeDepth);
+    vec2 finalTexCoords = prevTexCoords * weight + currentTexCoords * (1.0 - weight);
+
+    return finalTexCoords; 
+} 
+
+vec3 shiftTangent(vec3 tangent, vec3 normal,float shift) {
+    vec3 shiftedTangent = tangent + shift * normal;
+    return normalize(shiftedTangent);
+}
+
+float strandSpecular(vec3 tangent, vec3 viewDir, vec3 lightDir, float exponent) {
+    vec3 halfVector = normalize(viewDir + lightDir);
+    float dotTH = dot(tangent, halfVector);
+    float sinTH = sqrt(1.0 - dotTH * dotTH);
+    float disAtten = smoothstep(-1.0, 0.0, dotTH);
+    return disAtten * pow(sinTH, exponent);
+}
+
+// -----------------------------------------------------------------------------
+// Luminance helper ------------------------------------------------------------
+// -----------------------------------------------------------------------------
+float luminance(vec3 c)                  // ITU‑R BT.709 luma coefficients
 {
-    vec3 B = normalize(cross(T, N));             // bitangent
-    // Diffuse term (wrap)
-    float NoL = clamp(dot(N, L) * 0.5 + 0.5, 0.0, 1.0);
-    vec3  diff = baseCol * NoL;
+    return dot(c, vec3(0.2126, 0.7152, 0.0722));
+}
 
-    // Longitudinal (along-strand) spec
-    vec3  H = normalize(L + V);
-    float Th = dot(T, H);
-    float spec1 = pow(max(Th, 0.0), 1.0 / (roughness + 1e-4));
+// -----------------------------------------------------------------------------
+// Primary & secondary specular tints ------------------------------------------
+// -----------------------------------------------------------------------------
+/* PRIMARY highlight     – “silk” sheen, subtle, tinted like the fibre itself
+ * SECONDARY highlight   – narrower, brighter glints, shifts further to white
+ *
+ * Both functions use exactly the same logic, differing only in how strongly
+ * they drift the base colour towards white.  The drift factor is *adaptive*:
+ *   • dark hair (low luminance)        → bigger shift, or you’d never see it
+ *   • light hair (high luminance)      → smaller shift, or it would look flat
+ */
+vec3 computeSpecColor1(vec3 baseCol)     // primary lobe
+{
+    float Y   = luminance(baseCol);                 // 0 = black, 1 = white
+    float amt = mix(0.55, 0.25, Y);                 // dark  → 0.55,   light → 0.25
+    return mix(baseCol, vec3(1.0), amt);            // tint towards white
+}
 
-    // Shifted secondary lobe (makes that ��silky rim��)
-    float spec2 = pow(max(dot(T, normalize(L + V + shift*N)), 0.0),
-                      1.0 / ((roughness*0.5) + 1e-4));
+vec3 computeSpecColor2(vec3 baseCol)     // secondary lobe
+{
+    float Y   = luminance(baseCol);
+    float amt = mix(0.85, 0.45, Y);                 // stronger drift
+    return mix(baseCol, vec3(1.0), amt);
+}
 
-    return diff + vec3(0.04) * spec1 + vec3(0.04) * spec2;
+vec3 shadeHair(vec3 tangent, vec3 normal, vec2 texCoords, vec3 wo, vec3 wi, vec3 baseCol, vec3 lightCol, float shift, float ao) {
+    // -- 1.  Shifted tangents -------------------------------------------------
+    vec3 t1 = shiftTangent(tangent, normal, primaryShift + shift);
+    vec3 t2 = shiftTangent(tangent, normal, secondaryShift + shift);
+
+    // -- 2.  Diffuse term -----------------------------------------------------
+    float NdotL  = dot(normal, wi);
+    float diffKW = mix(0.25, 1.0, clamp(NdotL, 0.0, 1.0)); // soft rim
+    // vec3  diff   = diffKW * uDiffuseColor;
+    vec3  diff = diffKW * baseCol;
+
+    // -- 3.  Specular lobes ---------------------------------------------------
+    vec3  spec   = computeSpecColor1(baseCol) * strandSpecular(t1, wo, wi, specExp1);
+    const float rawNoise = fbmNoise(texCoords, noiseScale); // approx sparkle map
+    const float specMask = smoothstep(cutoffLow, cutoffHigh, rawNoise);          
+    float spec2 = strandSpecular(t2, wo, wi, specExp2);
+    spec += computeSpecColor2(baseCol) * specMask * spec2;
+
+    // -- 4.  Final colour -----------------------------------------------------
+    vec3 result = (diff + spec) * baseCol * lightCol;
+    result *= ao; // ambient occl.
+
+    return result;        
 }
 
 void main() {
     // Read from textures
-	vec4 albedo = texture(texAlbedo, inVertexAttributes.texCoord);
+    vec3 wo = normalize(inVertexAttributes.cameraPosition - inVertexAttributes.position.xyz);
 
+    float depth = texture(texDepth, inVertexAttributes.texCoord).r;
+    vec2 texCoords = parallaxMapping(inVertexAttributes.texCoord, wo);
+    if(texCoords.x > 1.0 || texCoords.y > 1.0 || texCoords.x < 0.0 || texCoords.y < 0.0) {
+        discard;
+    }
+
+    // texCoords = inVertexAttributes.texCoord;
+    vec4 albedo = texture(texAlbedo, texCoords);
 	if (albedo.a < 0.01) {
 		discard;
 	}
 
-	vec3 normal = texture(texNormal, inVertexAttributes.texCoord).xyz;
+    vec3 normal = texture(texNormal, texCoords).xyz;
 	normal = normalize(normal * 2.0 - 1.0);
 	normal = normalize(computeTBN(normal) * normal);
-    vec2 dirXY = texture(texDirection  , inVertexAttributes.texCoord).rb * 2.0 - 1.0;
+    vec2 dirXY = texture(texDirection  , texCoords).rb * 2.0 - 1.0;
     vec3 tangent = normalize(vec3(dirXY, sqrt(max(1.0 - dot(dirXY,dirXY), 0.0))));
-	float ao = texture(texAo, inVertexAttributes.texCoord).r;
-	float depth = texture(texDepth, inVertexAttributes.texCoord).r;
-	float root = texture(texRoot, inVertexAttributes.texCoord).r;
+	float ao = texture(texAo, texCoords).r;	
+	float root = texture(texRoot, texCoords).r;
 
-    // Compute the directions
-    vec3 wo = normalize(inVertexAttributes.cameraPosition - inVertexAttributes.position.xyz);
-
-    // Shade
-    float roughness = mix(0.15, 0.4, root); // tighter near root
-    vec3 litColor = vec3(0.0);
-    for (int i = 0; i < 4; i++) {
-        vec3 wi = normalize(light_pos[i] - inVertexAttributes.position.xyz);
-        float distance = length(light_pos[i] - inVertexAttributes.position.xyz);
-        float attenuation = 1.0 / (distance * distance);
-        vec3 radiance = light_col[i] * attenuation;
-
-        litColor += shadeHair(normal, tangent, wo, wi, albedo.rgb, roughness, 0.35f) * radiance;
+    // Shade  
+    vec3 hairCol = vec3(0.0f);
+    for (int i = 0; i < light_pos.length(); i++) {
+        hairCol += shadeHair(tangent, normal, texCoords, wo, normalize(light_pos[i] - inVertexAttributes.position.xyz), albedo.rgb, light_col[i] / 100.0f, root, ao);
     }
-
-    litColor *= mix(1.0, 0.6, depth) * ao;      
+    hairCol /= float(light_pos.length());
 
     // WBOIT output
-	// Insert your favorite weighting function here. The color-based factor
-	// avoids color pollution from the edges of wispy clouds. The z-based
-	// factor gives precedence to nearer surfaces.
-
-	// The depth functions in the paper want a camera-space depth of 0.1 < z < 500,
-	// but the scene at the moment uses a range of about 0.01 to 50, so multiply
-	// by 10 to get an adjusted depth:
-	vec3 tmp = litColor.rgb * albedo.a; // Premultiply it
-	vec4 color = vec4(tmp, albedo.a);
-	const float depthZ = -inVertexAttributes.depth * 1000.0f; // Z coordinate after applying the view matrix (larger = further away)
-	const float distWeight = clamp(0.03 / (1e-5 + pow(depthZ / 200, 4.0)), 1e-2, 3e3);
+    const float z = -inVertexAttributes.depth;
+	vec4 color = vec4(hairCol *  albedo.a, albedo.a);
+    float distWeight = pow(abs(z), distanceWeightExp);
 	float alphaWeight = min(1.0, max(max(color.r, color.g), max(color.b, color.a)) * 40.0 + 0.01);
 	alphaWeight *= alphaWeight;
-	const float weight = alphaWeight * distWeight;
+
+	// const float weight = alphaWeight * distWeight;
+    const float weight = distWeight;
+    // const float weight = pow(abs(z) + 5.0, -2.0f);
 
 	// GL Blend function: GL_ONE, GL_ONE
 	outColor = color * weight;
