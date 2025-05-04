@@ -23,7 +23,6 @@
 #include <unordered_map>
 
 #include "bindings.inc"
-#include "common.h"
 #include "camera.h"
 #include "vertex.h"
 #include "vulkanImage.h"
@@ -82,9 +81,10 @@ class Main {
 public:
 	Main(GLFWwindow* window,
 		Camera* camera,
-		std::unordered_map<std::string, std::vector<char>> shaders,
-		std::unordered_map<std::string, std::pair<std::vector<Vertex>, std::vector<uint32_t>>> models,
-		std::unordered_map<std::string, Image> textures);
+		std::unordered_map<std::string, std::vector<char>> &&shaders,
+		std::unordered_map<std::string, std::pair<std::vector<Vertex>, std::vector<uint32_t>>> &&models,
+		std::unordered_map<std::string, Image>&& textures = {},
+		CubeMap &&envMap = {});
 
 	~Main();
 
@@ -112,6 +112,7 @@ private:
 	std::unordered_map<std::string, std::vector<char>> shaders;
 	std::unordered_map<std::string, std::pair<std::vector<Vertex>, std::vector<uint32_t>>> models;
 	std::unordered_map<std::string, Image> textures;
+	CubeMap envMap;
 
 	std::unordered_map<std::string, MeshBuffer> vertices;
 	std::unordered_map<std::string, MeshBuffer> indices;
@@ -164,7 +165,7 @@ private:
 
 	void initVulkan();
 
-	void cleanUp();
+	void cleanUpVulkan();
 
 	static void DestroyDebugUtilsMessengerEXT(VkInstance instance, VkDebugUtilsMessengerEXT debugMessenger, const VkAllocationCallbacks* pAllocator);
 

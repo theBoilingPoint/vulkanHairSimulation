@@ -127,18 +127,17 @@ int main() {
 		{std::to_string(SET_GLOBAL) + "_" + std::to_string(BIND_HAIR_ID), loadImage("assets/textures/ponytail/T_Hair_ID.png")}
 	};
 
+	CubeMap envMap = loadEnvMap("assets/envMaps/christmas_photo_studio_01_4k_hstrip.hdr");
+
 	App app;
 	Main vulkanPipeline(
 		app.window, 
 		app.camera, 
-		shaders, 
-		models,
-		textures
+		std::move(shaders),
+		std::move(models),
+		std::move(textures),
+		std::move(envMap)
 	);
-
-	for (auto& pair : textures) {
-		stbi_image_free(pair.second.pixels);
-	}
 
 	try {
 		vulkanPipeline.mainLoop();

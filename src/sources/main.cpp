@@ -1,16 +1,20 @@
 #include "main.h"
 #include "vertex.h"
 
+#include <stb_image.h>
+
 Main::Main(GLFWwindow* window,
 	Camera* camera,
-	std::unordered_map<std::string, std::vector<char>> shaders,
-	std::unordered_map<std::string, std::pair<std::vector<Vertex>, std::vector<uint32_t>>> models,
-	std::unordered_map<std::string, Image> textures): 
+	std::unordered_map<std::string, std::vector<char>> &&shaders,
+	std::unordered_map<std::string, std::pair<std::vector<Vertex>, std::vector<uint32_t>>> &&models,
+	std::unordered_map<std::string, Image> &&textures,
+	CubeMap &&envMap):
 	window(window),
 	camera(camera),
 	models(models),
 	textures(textures),
 	shaders(shaders),
+	envMap(envMap),
 	physicalDevice(VK_NULL_HANDLE),
 	msaaSamples(VK_SAMPLE_COUNT_1_BIT),
 	currentFrame(0) {
@@ -18,7 +22,15 @@ Main::Main(GLFWwindow* window,
 }
 
 Main::~Main() {
-	cleanUp();
+	cleanUpVulkan();
+
+	for (auto& pair : textures) {
+		stbi_image_free(pair.second.pixels);
+	}
+
+	for (auto& face : envMap) {
+		delete[] face;
+	}
 
 	shaders.clear();
 	models.clear();
@@ -26,7 +38,7 @@ Main::~Main() {
 	
 	vertices.clear();
 	indices.clear();
-	//descriptorSets.clear();
+
 	uniformBuffers.clear();
 	uniformBuffersMemory.clear();
 	uniformBuffersMapped.clear();
@@ -79,7 +91,7 @@ void Main::mainLoop() {
 	vkDeviceWaitIdle(device);
 }
 
-void Main::cleanUp() {
+void Main::cleanUpVulkan() {
 	cleanupSwapChain();
 
 	vkDestroySampler(device, textureSampler, nullptr);

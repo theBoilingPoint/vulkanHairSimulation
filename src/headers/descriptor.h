@@ -6,7 +6,7 @@
 #include <stdexcept>
 #include <vector>
 
-#include "common.h"
+#include "utils.h"
 
 struct DescriptorBinding {
 	VkDescriptorSetLayoutBinding binding;
