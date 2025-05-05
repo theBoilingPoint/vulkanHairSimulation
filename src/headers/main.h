@@ -7,6 +7,7 @@
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/packing.hpp>
 
 #include <iostream>
 #include <string>
@@ -81,10 +82,11 @@ class Main {
 public:
 	Main(GLFWwindow* window,
 		Camera* camera,
-		std::unordered_map<std::string, std::vector<char>> &&shaders,
-		std::unordered_map<std::string, std::pair<std::vector<Vertex>, std::vector<uint32_t>>> &&models,
+		std::unordered_map<std::string, std::vector<char>>&& shaders,
+		std::unordered_map<std::string,
+		std::pair<std::vector<Vertex>, std::vector<uint32_t>>>&& models,
 		std::unordered_map<std::string, Image>&& textures = {},
-		CubeMap &&envMap = {});
+		CubeMap&& envMap = {});
 
 	~Main();
 
@@ -134,12 +136,14 @@ private:
 	VkFormat swapChainImageFormat;
 	VkExtent2D swapChainExtent;
 
-	uint32_t mipLevels;
+	VkSampler envMapSampler;
 	VkSampler textureSampler;
+	uint32_t textureMipLevels;
 	VkSampleCountFlagBits msaaSamples;
 
 	std::vector<VulkanImage> swapChainImageViews;
 	std::unordered_map<std::string, VulkanImage> textureImages;
+	VulkanImage envMapImage;
 	VulkanImage depthImage;
 	VulkanImage offscreenColorImage;
 	VulkanImage weightedColorImage;
@@ -253,9 +257,9 @@ private:
 
 	void createTextureImages();
 
-	void copyBufferToImage(VkBuffer buffer, VkImage image, uint32_t width, uint32_t height);
+	void copyBufferToImage(VkBuffer buffer, VkImage image, uint32_t width, uint32_t height, uint32_t layers = 1);
 
-	void createTextureSampler();
+	void createSampler(VkSampler* sampler, float mipLevels, bool useNearestFilter = false);
 
 	VkFormat findSupportedFormat(const std::vector<VkFormat>& candidates, VkImageTiling tiling, VkFormatFeatureFlags features);
 
@@ -268,13 +272,20 @@ private:
 	VkSampleCountFlagBits getMaxUsableSampleCount();
 
 	// Functions added for BWOIT
+	void createEnvironmentMapImage(bool useHigherPrecision = false);
+
 	void createFramebuffers();
 
 	void createImageResource(VulkanImage* image, VkFormat format, VkSampleCountFlagBits samples, VkImageUsageFlags usage, VkImageAspectFlags aspectFlags);
 
-	void createImageResources();
+	void createOffscreenImageResources();
 
-	void transitionImage(VulkanImage image, VkImageLayout newLayout, VkAccessFlags newtAccesses);
+	void transitionImage(
+		VulkanImage image, 
+		VkImageLayout newLayout, 
+		VkAccessFlags newtAccesses, 
+		VkImageSubresourceRange range = { 0 }
+	);
 
 	void createOpaqueObjectsFramebuffer();
 

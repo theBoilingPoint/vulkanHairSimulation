@@ -1,23 +1,25 @@
-#include "main.h"
+﻿#include "main.h"
 #include "vertex.h"
 
 #include <stb_image.h>
 
 Main::Main(GLFWwindow* window,
 	Camera* camera,
-	std::unordered_map<std::string, std::vector<char>> &&shaders,
-	std::unordered_map<std::string, std::pair<std::vector<Vertex>, std::vector<uint32_t>>> &&models,
-	std::unordered_map<std::string, Image> &&textures,
-	CubeMap &&envMap):
-	window(window),
+	std::unordered_map<std::string, std::vector<char>>&& shaders,
+	std::unordered_map<std::string,
+	std::pair<std::vector<Vertex>, std::vector<uint32_t>>>&& models,
+	std::unordered_map<std::string, Image>&& textures,
+	CubeMap&& envMap)
+	: window(window),
 	camera(camera),
+	shaders(shaders),
 	models(models),
 	textures(textures),
-	shaders(shaders),
 	envMap(envMap),
 	physicalDevice(VK_NULL_HANDLE),
 	msaaSamples(VK_SAMPLE_COUNT_1_BIT),
-	currentFrame(0) {
+	currentFrame(0)
+{
 	initVulkan();
 }
 
@@ -28,7 +30,7 @@ Main::~Main() {
 		stbi_image_free(pair.second.pixels);
 	}
 
-	for (auto& face : envMap) {
+	for (auto& face : envMap.faces) {
 		delete[] face;
 	}
 
@@ -62,10 +64,11 @@ void Main::initVulkan() {
 	// Create image views for the swapchain and offscreen
 	createSwapChain();
 	createSwapchainImageViews();
-	createImageResources();
-	
+	createOffscreenImageResources();
 	createTextureImages();
-	createTextureSampler();
+	createSampler(&textureSampler, textureMipLevels);
+	createEnvironmentMapImage();
+	createSampler(&envMapSampler, 1.0f);
 	createUniformBuffers();
 
 	createDescriptor();
@@ -95,10 +98,12 @@ void Main::cleanUpVulkan() {
 	cleanupSwapChain();
 
 	vkDestroySampler(device, textureSampler, nullptr);
-
 	for (auto &pair : textureImages) {
 		pair.second.destroy();
 	}
+
+	vkDestroySampler(device, envMapSampler, nullptr);
+	envMapImage.destroy();
 
 	for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
 		vkDestroyBuffer(device, uniformBuffers[i], nullptr);
@@ -392,6 +397,7 @@ void Main::createLogicalDevice() {
 	}
 
 	VkPhysicalDeviceFeatures deviceFeatures{};
+	deviceFeatures.geometryShader = VK_TRUE;
 	deviceFeatures.samplerAnisotropy = VK_TRUE;
 	// MSAA only smoothens out the edges of geometry but not the interior filling. 
 	// This may lead to a situation when you get a smooth polygon rendered on screen 
@@ -597,7 +603,7 @@ void Main::createDescriptor() {
 	descriptor = Descriptor(
 		&device,
 		1, // numUniformBuffers
-		textureImages.size(), // numTextureBuffers
+		textureImages.size() + 1, // numTextureBuffers: numTextures + 1 for envMap
 		2 // numInputBuffers
 	);
 
@@ -634,6 +640,15 @@ void Main::createDescriptor() {
 			textureSampler
 		);
 	}
+
+	descriptor.addDescriptorSetLayoutBinding(
+		BIND_ENV_MAP,
+		VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+		VK_SHADER_STAGE_FRAGMENT_BIT,
+		{},
+		envMapImage.view,
+		envMapSampler
+	);
 
 	descriptor.create();
 }
@@ -1651,7 +1666,7 @@ void Main::recreateSwapChain() {
 
 	createSwapChain();
 	createSwapchainImageViews();
-	createImageResources();
+	createOffscreenImageResources();
 	createFramebuffers();
 	createDescriptor();
 }
@@ -1789,15 +1804,21 @@ void Main::updateUniformBuffer(uint32_t currentImage) {
 	memcpy(uniformBuffersMapped[currentImage], &ubo, sizeof(ubo));
 }
 
-void Main::transitionImage(VulkanImage image, VkImageLayout newLayout, VkAccessFlags newtAccesses) {
+void Main::transitionImage(
+	VulkanImage image, 
+	VkImageLayout newLayout, 
+	VkAccessFlags newtAccesses, 
+	VkImageSubresourceRange range
+) {
 	VkCommandBuffer commandBuffer = beginSingleTimeCommands();
-	image.transitionLayout(commandBuffer, newLayout, newtAccesses);
+	image.transitionLayout(commandBuffer, newLayout, newtAccesses, range);
 	endSingleTimeCommands(commandBuffer);
 }
 
 VulkanImage Main::createTextureImage(int texWidth, int texHeight, stbi_uc* pixels) {
+	// Create staging buffer and copy the image data to it
 	VkDeviceSize imageSize = texWidth * texHeight * 4;
-	mipLevels = static_cast<uint32_t>(std::floor(std::log2(std::max(texWidth, texHeight)))) + 1;
+	textureMipLevels = static_cast<uint32_t>(std::floor(std::log2(std::max(texWidth, texHeight)))) + 1;
 
 	VkBuffer stagingBuffer;
 	VkDeviceMemory stagingBufferMemory;
@@ -1808,15 +1829,14 @@ VulkanImage Main::createTextureImage(int texWidth, int texHeight, stbi_uc* pixel
 	memcpy(data, pixels, static_cast<size_t>(imageSize));
 	vkUnmapMemory(device, stagingBufferMemory);
 
-	VulkanImage textureImage;
-	textureImage = VulkanImage(
+	// Create image and transition it to VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL
+	VulkanImage textureImage = VulkanImage(
 		&device, 
 		texWidth, 
 		texHeight,
-		mipLevels, 
+		textureMipLevels,
 		VK_SAMPLE_COUNT_1_BIT,
 		VK_FORMAT_R8G8B8A8_SRGB,
-		VK_IMAGE_TILING_OPTIMAL,
 		VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
 		VK_IMAGE_ASPECT_COLOR_BIT
 	);
@@ -1828,11 +1848,13 @@ VulkanImage Main::createTextureImage(int texWidth, int texHeight, stbi_uc* pixel
 
 	transitionImage(textureImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_ACCESS_TRANSFER_WRITE_BIT);
 
+	// Copy the buffer to the image
 	copyBufferToImage(stagingBuffer, textureImage.image, static_cast<uint32_t>(texWidth), static_cast<uint32_t>(texHeight));
-	generateMipmaps(textureImage.image, VK_FORMAT_R8G8B8A8_SRGB, texWidth, texHeight, mipLevels);
+	generateMipmaps(textureImage.image, VK_FORMAT_R8G8B8A8_SRGB, texWidth, texHeight, textureMipLevels);
 	
 	textureImage.createView();
 
+	// Cleanup
 	vkDestroyBuffer(device, stagingBuffer, nullptr);
 	vkFreeMemory(device, stagingBufferMemory, nullptr);
 
@@ -1846,7 +1868,111 @@ void Main::createTextureImages() {
 	}
 }
 
-void Main::copyBufferToImage(VkBuffer buffer, VkImage image, uint32_t width, uint32_t height) {
+void Main::createEnvironmentMapImage(bool useHigherPrecision) {
+	const VkFormat format = useHigherPrecision ? VK_FORMAT_R32G32B32A32_SFLOAT : VK_FORMAT_R16G16B16A16_SFLOAT;
+	const size_t bytesPerComponent = useHigherPrecision ? sizeof(float) : sizeof(uint16_t);
+	const size_t bytesPerPixel = 4 * bytesPerComponent;   // RGBA
+
+	// This is basically an image (view) with 6 layers because Vulkan doesn't have cubemap.
+	envMapImage = VulkanImage(
+		&device,
+		envMap.resolution,
+		envMap.resolution,
+		1,
+		VK_SAMPLE_COUNT_1_BIT,
+		format,
+		VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+		VK_IMAGE_ASPECT_COLOR_BIT,
+		VK_IMAGE_TILING_OPTIMAL,
+		6,
+		VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT,
+		VK_IMAGE_VIEW_TYPE_CUBE
+	);
+
+	envMapImage.createImage();
+
+	VkMemoryRequirements memRequirements;
+	vkGetImageMemoryRequirements(device, envMapImage.image, &memRequirements);
+	envMapImage.bindMemory(memRequirements.size, findMemoryType(memRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT));
+
+	envMapImage.createView();
+
+	VkImageSubresourceRange cubeRange{};
+	cubeRange.baseMipLevel = 0;
+	cubeRange.levelCount = 1;
+	cubeRange.baseArrayLayer = 0;
+	cubeRange.layerCount = 6;
+
+	transitionImage(envMapImage,
+		VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,  // new layout
+		VK_ACCESS_TRANSFER_WRITE_BIT,          // dstAccess
+		cubeRange);
+
+	// Create staging buffer
+	VkDeviceSize sizePerLayer = envMap.resolution * envMap.resolution * bytesPerPixel; // 4 bytes/channel per pixel
+	VkDeviceSize totalSize = sizePerLayer * 6;
+	VkBuffer stagingBuffer;
+	VkDeviceMemory stagingBufferMemory;
+
+	createBuffer(
+		totalSize,
+		VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+		VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+		stagingBuffer,
+		stagingBufferMemory
+	);
+
+	uint8_t* dst = nullptr;
+	vkMapMemory(device, stagingBufferMemory, 0, totalSize, 0, reinterpret_cast<void**>(&dst));
+
+	for (uint32_t face = 0; face < 6; ++face) {
+		// Copy each face to its allocated memory
+		const float* src = envMap.faces[face];               // RGB[A] 32F
+		
+
+		const size_t pixelCount = static_cast<size_t>(envMap.resolution) * envMap.resolution;
+		for (size_t i = 0; i < pixelCount; ++i)
+		{
+			const float r = src[i * envMap.channels + 0];
+			const float g = src[i * envMap.channels + 1];
+			const float b = src[i * envMap.channels + 2];
+			const float a = (envMap.channels == 4) ?
+				src[i * envMap.channels + 3] : 1.0f;
+
+			if (useHigherPrecision) {
+				float* dstFace = reinterpret_cast<float*>(dst + face * sizePerLayer);
+				dstFace[i * 4 + 0] = r;   // float
+				dstFace[i * 4 + 1] = g;   // float
+				dstFace[i * 4 + 2] = b;   // float
+				dstFace[i * 4 + 3] = a;   // float (1.0f if the HDR is RGB only)
+			}
+			else {
+				uint16_t* dstFace = reinterpret_cast<uint16_t*>(dst + face * sizePerLayer);
+				// If you later need the original value (within half‑precision error), call glm::unpackHalf1x16().
+				dstFace[i * 4 + 0] = glm::packHalf1x16(r);
+				dstFace[i * 4 + 1] = glm::packHalf1x16(g);
+				dstFace[i * 4 + 2] = glm::packHalf1x16(b);
+				dstFace[i * 4 + 3] = glm::packHalf1x16(a);
+			}
+		}
+	}
+
+	// Unmap the memory
+	vkUnmapMemory(device, stagingBufferMemory);
+
+	// Copy the buffer to the image and transition the image back to the shader read layout
+	copyBufferToImage(stagingBuffer, envMapImage.image, envMap.resolution, envMap.resolution, 6);
+	transitionImage(envMapImage,
+		VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+		VK_ACCESS_SHADER_READ_BIT,
+		cubeRange);
+
+	// Destrpy the staging buffer and clear the memory
+	vkDestroyBuffer(device, stagingBuffer, nullptr);
+	vkFreeMemory(device, stagingBufferMemory, nullptr);
+}
+
+void Main::copyBufferToImage(VkBuffer buffer, VkImage image, uint32_t width, uint32_t height, uint32_t layers) {
 	VkCommandBuffer commandBuffer = beginSingleTimeCommands();
 
 	VkBufferImageCopy region{};
@@ -1857,7 +1983,7 @@ void Main::copyBufferToImage(VkBuffer buffer, VkImage image, uint32_t width, uin
 	region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
 	region.imageSubresource.mipLevel = 0;
 	region.imageSubresource.baseArrayLayer = 0;
-	region.imageSubresource.layerCount = 1;
+	region.imageSubresource.layerCount = layers;
 
 	region.imageOffset = { 0, 0, 0 };
 	region.imageExtent = {
@@ -1878,11 +2004,17 @@ void Main::copyBufferToImage(VkBuffer buffer, VkImage image, uint32_t width, uin
 	endSingleTimeCommands(commandBuffer);
 }
 
-void Main::createTextureSampler() {
+void Main::createSampler(VkSampler *sampler, float mipLevels, bool useNearestFilter) {
 	VkSamplerCreateInfo samplerInfo{};
 	samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-	samplerInfo.magFilter = VK_FILTER_LINEAR;
-	samplerInfo.minFilter = VK_FILTER_LINEAR;
+	if (useNearestFilter) {
+		samplerInfo.magFilter = VK_FILTER_NEAREST;
+		samplerInfo.minFilter = VK_FILTER_NEAREST;
+	}
+	else {
+		samplerInfo.magFilter = VK_FILTER_LINEAR;
+		samplerInfo.minFilter = VK_FILTER_LINEAR;
+	}
 	samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
 	samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
 	samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
@@ -1897,9 +2029,9 @@ void Main::createTextureSampler() {
 	samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
 	samplerInfo.mipLodBias = 0.0f;
 	samplerInfo.minLod = 0.0f;
-	samplerInfo.maxLod = static_cast<float>(mipLevels);
+	samplerInfo.maxLod = mipLevels;
 
-	if (vkCreateSampler(device, &samplerInfo, nullptr, &textureSampler) != VK_SUCCESS) {
+	if (vkCreateSampler(device, &samplerInfo, nullptr, sampler) != VK_SUCCESS) {
 		throw std::runtime_error("failed to create texture sampler!");
 	}
 }
@@ -2048,7 +2180,6 @@ void Main::createImageResource(VulkanImage *image, VkFormat format, VkSampleCoun
 		1,
 		samples,
 		format,
-		VK_IMAGE_TILING_OPTIMAL,
 		usage,
 		aspectFlags
 	);
@@ -2061,7 +2192,7 @@ void Main::createImageResource(VulkanImage *image, VkFormat format, VkSampleCoun
 	image->createView();
 }
 
-void Main::createImageResources() {
+void Main::createOffscreenImageResources() {
 	//VK_FORMAT_B8G8R8A8_SRGB
 	createImageResource(&offscreenColorImage, VK_FORMAT_R8G8B8A8_SRGB, msaaSamples, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
 	transitionImage(offscreenColorImage, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT);

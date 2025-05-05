@@ -22,4 +22,6 @@
 #define BIND_HAIR_ID 					14
 #define BIND_HAIR_FLOW 					15
 
+#define BIND_ENV_MAP 					16
+
 #endif 

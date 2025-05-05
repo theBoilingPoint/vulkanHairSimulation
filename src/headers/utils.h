@@ -21,7 +21,7 @@ const int MAX_FRAMES_IN_FLIGHT = 2;
 
 /* Types and Structs */
 typedef unsigned char stbi_uc;
-typedef std::array<float*, 6> CubeMap;
+typedef std::array<float*, 6> CubeMapData;
 
 enum Shader {
 	VERTEX,
@@ -33,6 +33,13 @@ struct Image {
 	int	height;
 	int	channels;
 	stbi_uc* pixels;
+};
+
+struct CubeMap {
+	// Each face is a square so no need to store width and height separately.
+	int resolution;
+	int channels;
+	CubeMapData faces;
 };
 
 struct UniformBufferObject {

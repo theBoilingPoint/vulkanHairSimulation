@@ -173,7 +173,7 @@ CubeMap loadEnvMap(const std::string& imagePath)
 	const size_t stride = faceRes * channels;       // floats per row in ONE face
 
 	/* ---------- 3.  Allocate output buffers ---------- */
-	CubeMap faces{};
+	CubeMapData faces{};
 	for (float*& p : faces) {
 		p = new float[faceRes * faceRes * channels];    // caller owns & must delete[]
 	}
@@ -209,8 +209,8 @@ CubeMap loadEnvMap(const std::string& imagePath)
 		}
 	}
 
-	stbi_image_free(data);                          // original buffer no longer needed
-	return faces;                                   // caller must delete[] each face
+	stbi_image_free(data); // original buffer no longer needed
+	return CubeMap(faceRes, channels, faces); // caller must delete[] each face
 }
 
 std::pair<std::vector<Vertex>, std::vector<uint32_t>> loadObj(const std::string& modelPath) {

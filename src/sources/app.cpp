@@ -132,7 +132,7 @@ int main() {
 	App app;
 	Main vulkanPipeline(
 		app.window, 
-		app.camera, 
+		app.camera,
 		std::move(shaders),
 		std::move(models),
 		std::move(textures),

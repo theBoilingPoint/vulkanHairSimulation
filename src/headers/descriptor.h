@@ -28,6 +28,7 @@ private:
 	uint32_t numUniformBuffers;
 	uint32_t numTextureBuffers;
 	uint32_t numInputBuffers;
+	uint32_t totalNumBuffers;
 
 	std::vector<DescriptorBinding> bindings;
 	VkDescriptorPool descriptorPool;

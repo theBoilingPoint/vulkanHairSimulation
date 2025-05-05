@@ -15,26 +15,49 @@ VulkanImage::VulkanImage() :
 	view(nullptr),
 	memory(nullptr),
 	currentLayout(VK_IMAGE_LAYOUT_UNDEFINED),
-	currentAccesses(0) {}
+	currentAccesses(0),
+	createFlags(0),
+	viewType(VK_IMAGE_VIEW_TYPE_2D) { }
 
-VulkanImage::VulkanImage(VkDevice* device, uint32_t width, uint32_t height, uint32_t mipLevels, VkSampleCountFlagBits samples, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkImageAspectFlags aspectFlags) :
+VulkanImage::VulkanImage(
+	VkDevice* device,
+	uint32_t width,
+	uint32_t height,
+	uint32_t mipLevels,
+	VkSampleCountFlagBits samples,
+	VkFormat format,
+	VkImageUsageFlags usage,
+	VkImageAspectFlags aspectFlags,
+	VkImageTiling tiling,
+	uint32_t layers,
+	VkImageCreateFlags createFlags,
+	VkImageViewType viewType
+) :
 	device(device),
 	width(width),
 	height(height),
 	mipLevels(mipLevels),
-	layers(1),
-	tiling(tiling),
-	usage(usage),
-	aspectFlags(aspectFlags),
 	samples(samples),
 	format(format),
+	usage(usage),
+	aspectFlags(aspectFlags),
 	image(nullptr),
 	view(nullptr),
 	memory(nullptr),
 	currentLayout(VK_IMAGE_LAYOUT_UNDEFINED),
-	currentAccesses(0) {}
+	currentAccesses(0),
+	tiling(tiling),
+	layers(layers),
+	createFlags(createFlags),
+	viewType(viewType) {}
 
-VulkanImage::VulkanImage(VkDevice* device, VkImage swapChainImage, VkFormat swapchainFormat, VkImageAspectFlags swapchainAspectFlags, uint32_t swapchainMipLevels):
+VulkanImage::VulkanImage(
+	VkDevice* device, 
+	VkImage swapChainImage, 
+	VkFormat swapchainFormat, 
+	VkImageAspectFlags swapchainAspectFlags, 
+	uint32_t swapchainMipLevels
+):
 	device(device),
 	width(0),
 	height(0),
@@ -49,7 +72,9 @@ VulkanImage::VulkanImage(VkDevice* device, VkImage swapChainImage, VkFormat swap
 	view(nullptr),
 	memory(nullptr),
 	currentLayout(VK_IMAGE_LAYOUT_UNDEFINED),
-	currentAccesses(0) {}
+	currentAccesses(0),
+	createFlags(0),
+	viewType(VK_IMAGE_VIEW_TYPE_2D) {}
 
 VulkanImage::~VulkanImage() {}
 
@@ -78,6 +103,7 @@ void VulkanImage::createImage() {
 	imageInfo.usage = usage;
 	imageInfo.samples = samples;
 	imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+	imageInfo.flags = createFlags;
 
 	if (vkCreateImage(*device, &imageInfo, nullptr, &image) != VK_SUCCESS) {
 		throw std::runtime_error("failed to create image!");
@@ -101,20 +127,25 @@ void VulkanImage::createView() {
 	VkImageViewCreateInfo viewInfo{};
 	viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
 	viewInfo.image = image;
-	viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+	viewInfo.viewType = viewType;
 	viewInfo.format = format;
 	viewInfo.subresourceRange.aspectMask = aspectFlags;
 	viewInfo.subresourceRange.baseMipLevel = 0;
 	viewInfo.subresourceRange.levelCount = mipLevels;
 	viewInfo.subresourceRange.baseArrayLayer = 0;
-	viewInfo.subresourceRange.layerCount = 1;
+	viewInfo.subresourceRange.layerCount = layers;
 
 	if (vkCreateImageView(*device, &viewInfo, nullptr, &view) != VK_SUCCESS) {
 		throw std::runtime_error("failed to create texture image view!");
 	}
 }
 
-void VulkanImage::transitionLayout(VkCommandBuffer commandBuffer, VkImageLayout newLayout, VkAccessFlags newtAccesses) {
+void VulkanImage::transitionLayout(
+	VkCommandBuffer commandBuffer, 
+	VkImageLayout newLayout, 
+	VkAccessFlags newtAccesses,
+	VkImageSubresourceRange layers
+) {
 	VkImageAspectFlags aspectMask = 0;
 	if (newLayout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
 	{
@@ -129,7 +160,7 @@ void VulkanImage::transitionLayout(VkCommandBuffer commandBuffer, VkImageLayout 
 		aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
 	}
 
-	cmdImageTransition(commandBuffer, image, aspectMask, currentAccesses, newtAccesses, currentLayout, newLayout);
+	cmdImageTransition(commandBuffer, image, aspectMask, currentAccesses, newtAccesses, currentLayout, newLayout, layers);
 
 	// Update current layout, stages, and accesses
 	currentLayout = newLayout;

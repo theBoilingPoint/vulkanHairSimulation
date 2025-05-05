@@ -76,7 +76,15 @@ inline uint32_t makeAccessMaskPipelineStageFlags(uint32_t accessMask, VkPipeline
 }
 
 // From NVIDIA (nvpro_core)
-inline VkImageMemoryBarrier makeImageMemoryBarrier(VkImage img, VkAccessFlags srcAccess, VkAccessFlags dstAccess, VkImageLayout oldLayout, VkImageLayout newLayout, VkImageAspectFlags aspectMask) {
+inline VkImageMemoryBarrier makeImageMemoryBarrier(
+	VkImage img, 
+	VkAccessFlags srcAccess, 
+	VkAccessFlags dstAccess, 
+	VkImageLayout oldLayout, 
+	VkImageLayout newLayout, 
+	VkImageAspectFlags aspectMask,
+	VkImageSubresourceRange range = { 0 }
+) {
 	VkImageMemoryBarrier barrier = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
 	barrier.srcAccessMask = srcAccess;
 	barrier.dstAccessMask = dstAccess;
@@ -85,7 +93,7 @@ inline VkImageMemoryBarrier makeImageMemoryBarrier(VkImage img, VkAccessFlags sr
 	barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 	barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 	barrier.image = img;
-	barrier.subresourceRange = { 0 };
+	barrier.subresourceRange = range;
 	barrier.subresourceRange.aspectMask = aspectMask;
 	barrier.subresourceRange.levelCount = VK_REMAINING_MIP_LEVELS;
 	barrier.subresourceRange.layerCount = VK_REMAINING_ARRAY_LAYERS;
@@ -94,10 +102,19 @@ inline VkImageMemoryBarrier makeImageMemoryBarrier(VkImage img, VkAccessFlags sr
 }
 
 // From NVIDIA (nvpro_core)
-inline void cmdImageTransition(VkCommandBuffer cmd, VkImage img, VkImageAspectFlags aspects, VkAccessFlags src, VkAccessFlags dst, VkImageLayout oldLayout, VkImageLayout newLayout) {
+inline void cmdImageTransition(
+	VkCommandBuffer cmd, 
+	VkImage img, 
+	VkImageAspectFlags aspects, 
+	VkAccessFlags src, 
+	VkAccessFlags dst, 
+	VkImageLayout oldLayout, 
+	VkImageLayout newLayout,
+	VkImageSubresourceRange range = { 0 }
+) {
 	VkPipelineStageFlags srcPipe = makeAccessMaskPipelineStageFlags(src);
 	VkPipelineStageFlags dstPipe = makeAccessMaskPipelineStageFlags(dst);
-	VkImageMemoryBarrier barrier = makeImageMemoryBarrier(img, src, dst, oldLayout, newLayout, aspects);
+	VkImageMemoryBarrier barrier = makeImageMemoryBarrier(img, src, dst, oldLayout, newLayout, aspects, range);
 
 	vkCmdPipelineBarrier(cmd, srcPipe, dstPipe, VK_FALSE, 0, VK_NULL_HANDLE, 0, VK_NULL_HANDLE, 1, &barrier);
 }
@@ -113,9 +130,31 @@ public:
 	VkImage image;
 	VkImageView view;
 
+	// Default constructor
 	VulkanImage();
-	VulkanImage(VkDevice* device, uint32_t width, uint32_t height, uint32_t mipLevels, VkSampleCountFlagBits samples, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkImageAspectFlags aspectFlags);
-	VulkanImage(VkDevice* device, VkImage swapChainImage, VkFormat swapchainFormat, VkImageAspectFlags swapchainAspectFlags, uint32_t swapchainMipLevels);
+	// Constructor for normal images
+	VulkanImage(
+		VkDevice* device, 
+		uint32_t width, 
+		uint32_t height, 
+		uint32_t mipLevels, 
+		VkSampleCountFlagBits samples, 
+		VkFormat format, 
+		VkImageUsageFlags usage, 
+		VkImageAspectFlags aspectFlags, 
+		VkImageTiling tiling = VK_IMAGE_TILING_OPTIMAL,
+		uint32_t layers = 1,
+		VkImageCreateFlags createFlags = {},
+		VkImageViewType viewType = VK_IMAGE_VIEW_TYPE_2D
+	);
+	// Constructor for swapchain images
+	VulkanImage(
+		VkDevice* device, 
+		VkImage swapChainImage, 
+		VkFormat swapchainFormat, 
+		VkImageAspectFlags swapchainAspectFlags, 
+		uint32_t swapchainMipLevels
+	);
 	
 	~VulkanImage();
 
@@ -125,7 +164,12 @@ public:
 	void bindMemory(const VkDeviceSize allocationSize, const uint32_t memoryTypeIndex);
 	void createView();
 	// From NVIDIA (nvpro_core)
-	void transitionLayout(VkCommandBuffer commandBuffer, VkImageLayout newLayout, VkAccessFlags newtAccesses);
+	void transitionLayout(
+		VkCommandBuffer commandBuffer, 
+		VkImageLayout newLayout, 
+		VkAccessFlags newtAccesses, 
+		VkImageSubresourceRange layers = { 0 }
+	);
 
 private:
 	VkDevice *device;
@@ -135,4 +179,6 @@ private:
 	VkImageUsageFlags usage;
 	VkImageAspectFlags aspectFlags;
 	VkSampleCountFlagBits samples;
+	VkImageCreateFlags createFlags;
+	VkImageViewType viewType;
 };

@@ -4,17 +4,21 @@ Descriptor::Descriptor() :
 	device(nullptr),
 	numUniformBuffers(0),
 	numTextureBuffers(0),
-	numInputBuffers(0) {}
+	numInputBuffers(0),
+	totalNumBuffers(0) {}
 
 Descriptor::Descriptor(
 	VkDevice* device, 
 	uint32_t numUniformBuffers, 
 	uint32_t numTextureBuffers, 
-	uint32_t numInputBuffers)
-	: device(device), 
+	uint32_t numInputBuffers
+): 
+	device(device), 
 	numUniformBuffers(numUniformBuffers), 
 	numTextureBuffers(numTextureBuffers), 
-	numInputBuffers(numInputBuffers) {}
+	numInputBuffers(numInputBuffers) {
+	totalNumBuffers = numUniformBuffers + numTextureBuffers + numInputBuffers;
+}
 
 Descriptor::~Descriptor() {}
 
@@ -51,6 +55,10 @@ void Descriptor::addDescriptorSetLayoutBinding(
 }
 
 void Descriptor::createDescriptorSetLayout() {
+	if (bindings.size() != totalNumBuffers) {
+		throw std::runtime_error("Descriptor set layout bindings do not match the total number of buffers. Are you sure you have set the number of each type of buffers correctly?");
+	}
+
 	VkDescriptorSetLayoutCreateInfo layoutInfo{};
 	layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
 	layoutInfo.bindingCount = static_cast<uint32_t>(bindings.size());
