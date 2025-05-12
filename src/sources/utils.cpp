@@ -145,7 +145,7 @@ Image loadImage(const std::string& imagePath) {
 }
 
 // 6 × RGBA32F face pointers (or RGB)
-CubeMap loadEnvMap(const std::string& imagePath)
+CubeMap loadFlattenedEnvMap(const std::string& imagePath)
 {
 	/* ---------- 1.  Load the HDR panorama ---------- */
 	if (!std::filesystem::exists(imagePath)) {
@@ -153,7 +153,7 @@ CubeMap loadEnvMap(const std::string& imagePath)
 	}
 
 	int width, height, channels;                    // stb_image gives RGB = 3 or RGBA = 4
-	float* data = stbi_loadf(imagePath.c_str(), &width, &height, &channels, 0);
+	float* data = stbi_loadf(imagePath.c_str(), &width, &height, &channels, 4);
 	if (!data) {
 		throw std::runtime_error("Failed to load HDR image: " + imagePath);
 	}
@@ -211,6 +211,29 @@ CubeMap loadEnvMap(const std::string& imagePath)
 
 	stbi_image_free(data); // original buffer no longer needed
 	return CubeMap(faceRes, channels, faces); // caller must delete[] each face
+}
+
+HDRImage loadEnvMap(const std::string& imagePath) {
+	if (!std::filesystem::exists(imagePath)) {
+		throw std::runtime_error("Image not found: " + imagePath);
+	}
+		
+	int width, height, srcChannels;
+	constexpr int TARGET_CHANNELS = 4; // we want RGBA32F
+
+	float* data = stbi_loadf(imagePath.c_str(), &width, &height, &srcChannels, TARGET_CHANNELS);
+	if (!data) {
+		throw std::runtime_error("Failed to load HDR image: " + imagePath);
+	}
+		
+	/** allocate the *right* size – TARGET_CHANNELS, not srcChannels */
+	const size_t pixelCount = static_cast<size_t>(width) * height;
+	float* dst = new float[pixelCount * TARGET_CHANNELS];
+	std::memcpy(dst, data, pixelCount * TARGET_CHANNELS * sizeof(float));
+	stbi_image_free(data); // stb buffer no longer needed
+
+	HDRImage image{ width, height, TARGET_CHANNELS, dst };
+	return image;
 }
 
 std::pair<std::vector<Vertex>, std::vector<uint32_t>> loadObj(const std::string& modelPath) {

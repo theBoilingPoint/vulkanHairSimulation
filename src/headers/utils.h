@@ -35,6 +35,13 @@ struct Image {
 	stbi_uc* pixels;
 };
 
+struct HDRImage {
+	int width;
+	int	height;
+	int	channels;
+	float* pixels;
+};
+
 struct CubeMap {
 	// Each face is a square so no need to store width and height separately.
 	int resolution;
@@ -66,7 +73,9 @@ std::vector<char> readFile(const std::string& filename);
 Image loadImage(const std::string& imagePath);
 
 // 6 × RGBA32F face pointers (or RGB)
-CubeMap loadEnvMap(const std::string& imagePath);
+CubeMap loadFlattenedEnvMap(const std::string& imagePath);
+
+HDRImage loadEnvMap(const std::string& imagePath);
 
 std::pair<std::vector<Vertex>, std::vector<uint32_t>> loadObj(const std::string& modelPath);
 

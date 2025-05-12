@@ -50,7 +50,7 @@ void App::scrollCallback(GLFWwindow* window, double xoffset, double yoffset) {
 void App::mouseButtonCallback(GLFWwindow* window, int button, int action, int mods) {
 	auto app = reinterpret_cast<App*>(glfwGetWindowUserPointer(window));
 
-	if (!(button == GLFW_MOUSE_BUTTON_LEFT || button == GLFW_MOUSE_BUTTON_RIGHT)) {
+	if (!(button == GLFW_MOUSE_BUTTON_MIDDLE || button == GLFW_MOUSE_BUTTON_RIGHT)) {
 		return;
 	}
 
@@ -79,7 +79,7 @@ void App::cursorPositionCallback(GLFWwindow* window, double xpos, double ypos) {
 	double deltaX = app->mouseX - app->lastMouseX;
 	double deltaY = app->mouseY - app->lastMouseY;
 
-	if (app->buttonPressed == GLFW_MOUSE_BUTTON_LEFT) {
+	if (app->buttonPressed == GLFW_MOUSE_BUTTON_MIDDLE) {
 		glm::vec2 delta = glm::vec2(-deltaX, deltaY) * 0.001f;
 		app->camera->pan(delta);
 	}
@@ -110,7 +110,8 @@ int main() {
 
 	std::unordered_map<std::string, std::pair<std::vector<Vertex>, std::vector<uint32_t>>> models = {
 		{"head", loadModel("assets/models/obj/ponytail/character.obj")},
-		{"hair", loadModel("assets/models/obj/ponytail/hair.obj")}
+		{"hair", loadModel("assets/models/obj/ponytail/hair.obj")},
+		{"cube", Cube().getMesh()}
 	};
 	std::unordered_map<std::string, Image> textures = {
 		{std::to_string(SET_GLOBAL) + "_" + std::to_string(BIND_HEAD_ALBEDO), loadImage("assets/textures/ponytail/Head BaseColor.png")},
@@ -127,7 +128,8 @@ int main() {
 		{std::to_string(SET_GLOBAL) + "_" + std::to_string(BIND_HAIR_ID), loadImage("assets/textures/ponytail/T_Hair_ID.png")}
 	};
 
-	CubeMap envMap = loadEnvMap("assets/envMaps/christmas_photo_studio_01_4k_hstrip.hdr");
+	//CubeMap flattenedEnvMap = loadFlattenedEnvMap("assets/envMaps/christmas_photo_studio_01_4k_hstrip.hdr");
+	HDRImage envMap = loadEnvMap("assets/envMaps/christmas_photo_studio_01_4k.hdr");
 
 	App app;
 	Main vulkanPipeline(

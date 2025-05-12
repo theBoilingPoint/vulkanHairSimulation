@@ -31,14 +31,13 @@ private:
 	uint32_t totalNumBuffers;
 
 	std::vector<DescriptorBinding> bindings;
-	VkDescriptorPool descriptorPool;
 
 	void createDescriptorSetLayout();
-	void createDescriptorPool();
 	void allocateDescriptorSets();
 	void updateDescriptorSets();
 
 public:
+	VkDescriptorPool descriptorPool;
 	std::vector<VkDescriptorSet> descriptorSets;
 	VkDescriptorSetLayout descriptorSetLayout;
 
@@ -48,6 +47,8 @@ public:
 
 	void create();
 	void destroy();
+
+	void createDescriptorPool(const uint32_t poolSize = 1000);
 
 	void addDescriptorSetLayoutBinding(
 		uint32_t binding, 

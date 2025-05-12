@@ -9,6 +9,10 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/packing.hpp>
 
+#include <imgui.h>
+#include <backends/imgui_impl_glfw.h>
+#include <backends/imgui_impl_vulkan.h>
+
 #include <iostream>
 #include <string>
 #include <stdexcept>
@@ -24,6 +28,7 @@
 #include <unordered_map>
 
 #include "bindings.inc"
+#include "ui.h"
 #include "camera.h"
 #include "vertex.h"
 #include "vulkanImage.h"
@@ -86,7 +91,8 @@ public:
 		std::unordered_map<std::string,
 		std::pair<std::vector<Vertex>, std::vector<uint32_t>>>&& models,
 		std::unordered_map<std::string, Image>&& textures = {},
-		CubeMap&& envMap = {});
+		//CubeMap&& envMap = {}
+		HDRImage&& envMap = {});
 
 	~Main();
 
@@ -108,13 +114,17 @@ private:
 
 	VkSwapchainKHR swapChain;
 	std::vector<VkFramebuffer> swapChainFramebuffers;
+	uint32_t imageCount;
+
+	ImGui_ImplVulkanH_Window g_MainWindowData;
 
 	VkCommandPool commandPool;
 
 	std::unordered_map<std::string, std::vector<char>> shaders;
 	std::unordered_map<std::string, std::pair<std::vector<Vertex>, std::vector<uint32_t>>> models;
 	std::unordered_map<std::string, Image> textures;
-	CubeMap envMap;
+	// CubeMap envMap;
+	HDRImage envMap;
 
 	std::unordered_map<std::string, MeshBuffer> vertices;
 	std::unordered_map<std::string, MeshBuffer> indices;
@@ -137,6 +147,7 @@ private:
 	VkExtent2D swapChainExtent;
 
 	VkSampler envMapSampler;
+	uint32_t envMapMipLevels;
 	VkSampler textureSampler;
 	uint32_t textureMipLevels;
 	VkSampleCountFlagBits msaaSamples;
@@ -151,6 +162,10 @@ private:
 	// Given that we use multisampling for images before this step, we need to downsample it before blitting the result to the swapchain
 	VulkanImage downsampleImage;
 
+	// TODO: EnvMap
+	// STORAGE cubemaps: VulkanImage envMapStorageImage;
+	// SAMPLER cubemaps: VulkanImage envMapSamplerImage;
+
 	// Opaque Objects
 	VkRenderPass opaqueObjectsRenderPass;
 	VkFramebuffer opaqueObjectsFramebuffer;
@@ -164,6 +179,12 @@ private:
 	VkPipeline weightedColorPipeline;
 	VkPipelineLayout weightedRevealPipelineLayout;
 	VkPipeline weightedRevealPipeline;
+
+	// UI
+	//VkDescriptorPool imguiPool;
+	//VkRenderPass uiRenderPass;
+	//std::vector<VkFramebuffer> uiFramebuffers;
+	UI ui;
 
 	uint32_t currentFrame;
 
@@ -229,7 +250,7 @@ private:
 
 	void createSyncObjects();
 
-	void drawFrame();
+	void drawFrame(ImGuiIO& io);
 
 	void cleanupSwapChain();
 
@@ -259,7 +280,7 @@ private:
 
 	void copyBufferToImage(VkBuffer buffer, VkImage image, uint32_t width, uint32_t height, uint32_t layers = 1);
 
-	void createSampler(VkSampler* sampler, float mipLevels, bool useNearestFilter = false);
+	void createSampler(VkSampler* sampler, float mipLevels, bool useNearestFilter = false, bool isEnvMap = false);
 
 	VkFormat findSupportedFormat(const std::vector<VkFormat>& candidates, VkImageTiling tiling, VkFormatFeatureFlags features);
 
@@ -271,9 +292,21 @@ private:
 
 	VkSampleCountFlagBits getMaxUsableSampleCount();
 
-	// Functions added for BWOIT
-	void createEnvironmentMapImage(bool useHigherPrecision = false);
+	// Functions added for IBL
+	VulkanImage createTextureImageGeneric(
+		int texWidth,
+		int  texHeight,
+		const void* pixels,
+		uint32_t* mipLevels,
+		VkFormat format,
+		size_t bytesPerChannel /* 1 or 4 */);
 
+	void createFlattenedEnvironmentMapImage(CubeMap flattenedEnvMap, bool useHigherPrecision = false);
+
+	// HDR (32-bit)
+	void createEnvMapImage(const HDRImage& envMap);
+
+	// Functions added for BWOIT
 	void createFramebuffers();
 
 	void createImageResource(VulkanImage* image, VkFormat format, VkSampleCountFlagBits samples, VkImageUsageFlags usage, VkImageAspectFlags aspectFlags);
@@ -306,4 +339,6 @@ private:
 	void recordTransparentObjectsRenderPass(VkCommandBuffer commandBuffer);
 
 	void recordSwapchainBlit(VkCommandBuffer commandBuffer, uint32_t imageIndex);
+
+	void createUI();
 };

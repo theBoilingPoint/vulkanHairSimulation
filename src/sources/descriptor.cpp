@@ -30,9 +30,24 @@ void Descriptor::create() {
 }
 
 void Descriptor::destroy() {
+	if (descriptorPool == VK_NULL_HANDLE && descriptorSetLayout == VK_NULL_HANDLE) {
+		return;
+	}
+
+	// No need to free individual sets ¨C destroying the pool does it.
+	descriptorSets.clear();
+
+	if (descriptorPool != VK_NULL_HANDLE) {
+		vkDestroyDescriptorPool(*device, descriptorPool, nullptr);
+		descriptorPool = VK_NULL_HANDLE;
+	}
+
+	if (descriptorSetLayout != VK_NULL_HANDLE) {
+		vkDestroyDescriptorSetLayout(*device, descriptorSetLayout, nullptr);
+		descriptorSetLayout = VK_NULL_HANDLE;
+	}
+
 	bindings.clear();
-	vkDestroyDescriptorPool(*device, descriptorPool, nullptr);
-	vkDestroyDescriptorSetLayout(*device, descriptorSetLayout, nullptr);
 }
 
 void Descriptor::addDescriptorSetLayoutBinding(
@@ -73,30 +88,26 @@ void Descriptor::createDescriptorSetLayout() {
 	}
 }
 
-void Descriptor::createDescriptorPool() {
-	VkDescriptorPoolSize poolSizeUniform{};
-	poolSizeUniform.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-	poolSizeUniform.descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT) * numUniformBuffers;
-
-	VkDescriptorPoolSize poolSizeTexture{};
-	poolSizeTexture.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-	poolSizeTexture.descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT) * numTextureBuffers;
-
-	VkDescriptorPoolSize poolSizeInput{};
-	poolSizeInput.type = VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT;
-	poolSizeInput.descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT) * numInputBuffers;
-
-	std::vector<VkDescriptorPoolSize> poolSizes = {
-		poolSizeUniform,
-		poolSizeTexture,
-		poolSizeInput
+void Descriptor::createDescriptorPool(const uint32_t poolSize) {
+	VkDescriptorPoolSize poolSizes[] = {
+		{ VK_DESCRIPTOR_TYPE_SAMPLER,                poolSize },
+		{ VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, poolSize },
+		{ VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,          poolSize },
+		{ VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,          poolSize },
+		{ VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER,   poolSize },
+		{ VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER,   poolSize },
+		{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,         poolSize },
+		{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         poolSize },
+		{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, poolSize },
+		{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, poolSize },
+		{ VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT,       poolSize }
 	};
 
 	VkDescriptorPoolCreateInfo poolInfo{};
 	poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-	poolInfo.poolSizeCount = static_cast<uint32_t>(poolSizes.size());
-	poolInfo.pPoolSizes = poolSizes.data();
-	poolInfo.maxSets = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
+	poolInfo.poolSizeCount = static_cast<uint32_t>(std::size(poolSizes));
+	poolInfo.pPoolSizes = poolSizes;
+	poolInfo.maxSets = static_cast<uint32_t>(poolSize);
 
 	if (vkCreateDescriptorPool(*device, &poolInfo, nullptr, &descriptorPool) != VK_SUCCESS) {
 		throw std::runtime_error("failed to create descriptor pool!");
