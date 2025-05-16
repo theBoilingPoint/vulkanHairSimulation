@@ -115,6 +115,7 @@ int main() {
 		{"hair", loadModel("assets/models/obj/ponytail/hair.obj")},
 		{"cube", Cube().getMesh()}
 	};
+
 	std::unordered_map<std::string, Image> textures = {
 		{std::to_string(SET_GLOBAL) + "_" + std::to_string(BIND_HEAD_ALBEDO), loadImage("assets/textures/ponytail/Head BaseColor.png")},
 

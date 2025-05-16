@@ -176,20 +176,13 @@ private:
 	// Opaque Objects
 	RenderPass opaqueObjectsRenderPass;
 	VkFramebuffer opaqueObjectsFramebuffer;
-	VkPipelineLayout opaqueObjectsPipelineLayout;
-	VkPipeline opaqueObjectsPipeline;	
-	//Pipeline opaqueObjectsPipeline;
+	Pipeline opaqueObjectsPipeline;
 
 	// Transparent Objects
 	RenderPass transparentObjectsRenderPass;
-
 	VkFramebuffer transparentObjectsFramebuffer;
-	VkPipelineLayout weightedColorPipelineLayout;
-	VkPipeline weightedColorPipeline;
-	VkPipelineLayout weightedRevealPipelineLayout;
-	VkPipeline weightedRevealPipeline;
-	//Pipeline weightedColorPipeline;
-	//Pipeline weightedRevealPipeline;
+	Pipeline weightedColorPipeline;
+	Pipeline weightedRevealPipeline;
 
 	// UI
 	RenderPass uiRenderPass;

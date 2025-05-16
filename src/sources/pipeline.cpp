@@ -1,12 +1,22 @@
 #include "pipeline.h"
 
+Pipeline::Pipeline() : device(nullptr), renderPass() {}
+
 Pipeline::Pipeline(VkDevice* device, RenderPass renderPass)
 	: device(device), renderPass(renderPass) {}
 
 Pipeline::~Pipeline() {}
 
-void Pipeline::cleanUp() {
-	
+void Pipeline::destroy() {
+	if (layout != VK_NULL_HANDLE) {
+		vkDestroyPipelineLayout(*device, layout, nullptr);
+		layout = VK_NULL_HANDLE;
+	}
+
+	if (pipeline != VK_NULL_HANDLE) {
+		vkDestroyPipeline(*device, pipeline, nullptr);
+		pipeline = VK_NULL_HANDLE;
+	}
 }
 
 void Pipeline::createPipelineLayout(VkDescriptorSetLayout *descriptorLayout) {
@@ -46,10 +56,9 @@ void Pipeline::createPipeline(
 	std::vector<char>fragShaderCode,
 	bool useHardCodedVertices,
 	VkPipelineRasterizationStateCreateInfo rasterizer,
-	VkPipelineMultisampleStateCreateInfo multisampling,
+	VkSampleCountFlagBits msaaSamples,
 	VkPipelineDepthStencilStateCreateInfo depthStencil,
 	std::vector<VkPipelineColorBlendAttachmentState> colorBlendAttachments,
-	uint32_t stageCount,
 	uint32_t subpassIndex) {
 	VkShaderModule vertShaderModule = createShaderModule(vertShaderCode);
 	VkShaderModule fragShaderModule = createShaderModule(fragShaderCode);
@@ -70,6 +79,11 @@ void Pipeline::createPipeline(
 
 	VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
 	vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+
+	// keep the storage alive for the whole function
+	std::vector<VkVertexInputBindingDescription>   bindingDescription;
+	std::vector<VkVertexInputAttributeDescription> attributeDescriptions;
+
 	if (useHardCodedVertices) {
 		vertexInputInfo.vertexBindingDescriptionCount = 0;
 		vertexInputInfo.vertexAttributeDescriptionCount = 0;
@@ -77,10 +91,13 @@ void Pipeline::createPipeline(
 		vertexInputInfo.pVertexAttributeDescriptions = nullptr;
 	}
 	else {
-		auto bindingDescription = Vertex::getBindingDescription();
-		auto attributeDescriptions = Vertex::getAttributeDescriptions();
-		vertexInputInfo.vertexBindingDescriptionCount = bindingDescription.size();
-		vertexInputInfo.vertexAttributeDescriptionCount = static_cast<uint32_t>(attributeDescriptions.size());
+		bindingDescription = Vertex::getBindingDescription();
+		attributeDescriptions = Vertex::getAttributeDescriptions();
+
+		vertexInputInfo.vertexBindingDescriptionCount =
+			static_cast<uint32_t>(bindingDescription.size());
+		vertexInputInfo.vertexAttributeDescriptionCount =
+			static_cast<uint32_t>(attributeDescriptions.size());
 		vertexInputInfo.pVertexBindingDescriptions = bindingDescription.data();
 		vertexInputInfo.pVertexAttributeDescriptions = attributeDescriptions.data();
 	}
@@ -105,6 +122,15 @@ void Pipeline::createPipeline(
 	dynamicState.dynamicStateCount = static_cast<uint32_t>(std::size(dynamicStates));
 	dynamicState.pDynamicStates = dynamicStates;
 
+	VkPipelineMultisampleStateCreateInfo multisampling{};
+	multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+	multisampling.pSampleMask = nullptr;
+	multisampling.alphaToCoverageEnable = VK_FALSE;
+	multisampling.alphaToOneEnable = VK_FALSE;
+	multisampling.rasterizationSamples = msaaSamples;
+	multisampling.sampleShadingEnable = VK_TRUE; // enable sample shading in the pipeline
+	multisampling.minSampleShading = .2f; // min fraction for sample shading; closer to one is smoother
+
 	const VkColorComponentFlags colorFlags = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
 
 	VkPipelineColorBlendStateCreateInfo colorBlending{};
@@ -120,7 +146,7 @@ void Pipeline::createPipeline(
 
 	VkGraphicsPipelineCreateInfo pipelineInfo{};
 	pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-	pipelineInfo.stageCount = stageCount;
+	pipelineInfo.stageCount = static_cast<uint32_t>(std::size(shaderStages));
 	pipelineInfo.pStages = shaderStages;
 	pipelineInfo.pVertexInputState = &vertexInputInfo;
 	pipelineInfo.pInputAssemblyState = &inputAssembly;

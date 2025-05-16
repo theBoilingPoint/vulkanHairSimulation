@@ -21,7 +21,7 @@ public:
 	VkPipelineLayout layout;
 	VkPipeline pipeline;
 
-	Pipeline() = delete;
+	Pipeline();
 	Pipeline(VkDevice* device, RenderPass renderPass);
 	~Pipeline();
 
@@ -32,12 +32,11 @@ public:
 		std::vector<char>fragShaderCode,
 		bool useHardCodedVertices,
 		VkPipelineRasterizationStateCreateInfo rasterizer,
-		VkPipelineMultisampleStateCreateInfo multisampling,
+		VkSampleCountFlagBits msaaSamples,
 		VkPipelineDepthStencilStateCreateInfo depthStencil,
 		std::vector<VkPipelineColorBlendAttachmentState> colorBlendAttachments,
-		uint32_t stageCount,
 		uint32_t subpassIndex
 	);
 
-	void cleanUp();
+	void destroy();
 };
