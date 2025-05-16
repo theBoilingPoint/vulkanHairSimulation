@@ -1,0 +1,1 @@
+- [christmas_photo_studio_01_4k](https://polyhaven.com/a/christmas_photo_studio_01)
