@@ -56,6 +56,10 @@ struct UniformBufferObject {
 	alignas(16) glm::vec3 cameraPos;
 };
 
+struct UIState {
+	bool transparencyOn;
+};
+
 /* Functions */
 // Function to read a shader source file
 std::string readShaderFile(const std::string& filePath);

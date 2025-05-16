@@ -33,6 +33,8 @@
 #include "vertex.h"
 #include "vulkanImage.h"
 #include "descriptor.h"
+#include "renderPass.h"
+#include "pipeline.h"
 
 #ifdef NDEBUG
 const bool enableValidationLayers = false;
@@ -99,6 +101,11 @@ public:
 	void mainLoop();
 
 private:
+	// UI
+	UI ui;
+	UIState uiState;
+
+	// Vulkan
 	GLFWwindow* window;
 	Camera* camera;
 	VkInstance instance;
@@ -167,24 +174,26 @@ private:
 	// SAMPLER cubemaps: VulkanImage envMapSamplerImage;
 
 	// Opaque Objects
-	VkRenderPass opaqueObjectsRenderPass;
+	RenderPass opaqueObjectsRenderPass;
 	VkFramebuffer opaqueObjectsFramebuffer;
 	VkPipelineLayout opaqueObjectsPipelineLayout;
-	VkPipeline opaqueObjectsPipeline;
+	VkPipeline opaqueObjectsPipeline;	
+	//Pipeline opaqueObjectsPipeline;
 
 	// Transparent Objects
-	VkRenderPass transparentObjectsRenderPass;
+	RenderPass transparentObjectsRenderPass;
+
 	VkFramebuffer transparentObjectsFramebuffer;
 	VkPipelineLayout weightedColorPipelineLayout;
 	VkPipeline weightedColorPipeline;
 	VkPipelineLayout weightedRevealPipelineLayout;
 	VkPipeline weightedRevealPipeline;
+	//Pipeline weightedColorPipeline;
+	//Pipeline weightedRevealPipeline;
 
 	// UI
-	//VkDescriptorPool imguiPool;
-	//VkRenderPass uiRenderPass;
-	//std::vector<VkFramebuffer> uiFramebuffers;
-	UI ui;
+	RenderPass uiRenderPass;
+	std::vector<VkFramebuffer> uiFramebuffers;
 
 	uint32_t currentFrame;
 
@@ -307,6 +316,8 @@ private:
 	void createEnvMapImage(const HDRImage& envMap);
 
 	// Functions added for BWOIT
+	void recordDrawForMesh(VkCommandBuffer cmd, const std::string& name);
+
 	void createFramebuffers();
 
 	void createImageResource(VulkanImage* image, VkFormat format, VkSampleCountFlagBits samples, VkImageUsageFlags usage, VkImageAspectFlags aspectFlags);
@@ -320,25 +331,29 @@ private:
 		VkImageSubresourceRange range = { 0 }
 	);
 
+	void createRenderPasses();
+
 	void createOpaqueObjectsFramebuffer();
 
-	void createOpaqueObjectsRenderPass();
+	void createTransparentObjectsFramebuffer();
 
 	void createOpaqueObjectsPipeline(std::vector<char>vertShaderCode, std::vector<char>fragShaderCode);
-
-	void recordOpaqueObjectsRenderPass(VkCommandBuffer commandBuffer);
-
-	void createTransparentObjectsRenderPass();
-
-	void createTransparentObjectsFramebuffer();
 
 	void createWeightedColorPipeline(std::vector<char>vertShaderCode, std::vector<char>fragShaderCode);
 
 	void createWeightedRevealPipeline(std::vector<char>vertShaderCode, std::vector<char>fragShaderCode);
 
+	void createPipelines();
+
+	void recordOpaqueObjectsRenderPass(VkCommandBuffer commandBuffer);
+
 	void recordTransparentObjectsRenderPass(VkCommandBuffer commandBuffer);
 
 	void recordSwapchainBlit(VkCommandBuffer commandBuffer, uint32_t imageIndex);
 
+	void createUIFramebuffers();
+
 	void createUI();
+
+	void recordUIRenderPass(VkCommandBuffer commandBuffer, uint32_t imageIndex);
 };

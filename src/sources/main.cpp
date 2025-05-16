@@ -25,6 +25,9 @@ Main::Main(GLFWwindow* window,
 	initVulkan();
 	// Must be called after vulkan is fully initalised.
 	ui = UI(&device);
+	uiState = {
+		true // transparency on
+	};
 }
 
 Main::~Main() {
@@ -80,8 +83,8 @@ void Main::initVulkan() {
 
 	createDescriptor();
 
-	createOpaqueObjectsRenderPass();
-	createTransparentObjectsRenderPass();
+	createRenderPasses();
+
 	createOpaqueObjectsPipeline(shaders["vertShader"], shaders["opaqueFragShader"]);
 	createWeightedColorPipeline(shaders["vertShader"], shaders["weightedColorFragShader"]);
 	createWeightedRevealPipeline(shaders["triangleShader"], shaders["weightedRevealFragShader"]);
@@ -133,13 +136,15 @@ void Main::cleanUpVulkan() {
 
 	vkDestroyPipeline(device, opaqueObjectsPipeline, nullptr);
 	vkDestroyPipelineLayout(device, opaqueObjectsPipelineLayout, nullptr);
-	vkDestroyRenderPass(device, opaqueObjectsRenderPass, nullptr);
+	opaqueObjectsRenderPass.destroy();
 	
 	vkDestroyPipelineLayout(device, weightedColorPipelineLayout, nullptr);
 	vkDestroyPipelineLayout(device, weightedRevealPipelineLayout, nullptr);
 	vkDestroyPipeline(device, weightedColorPipeline, nullptr);
 	vkDestroyPipeline(device, weightedRevealPipeline, nullptr);
-	vkDestroyRenderPass(device, transparentObjectsRenderPass, nullptr);
+	transparentObjectsRenderPass.destroy();
+
+	uiRenderPass.destroy();
 
 	for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
 		vkDestroySemaphore(device, renderFinishedSemaphores[i], nullptr);
@@ -708,7 +713,12 @@ void Main::createOpaqueObjectsPipeline(std::vector<char>vertShaderCode, std::vec
 	rasterizer.rasterizerDiscardEnable = VK_FALSE;
 	rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
 	rasterizer.lineWidth = 1.0f;
-	rasterizer.cullMode = VK_CULL_MODE_BACK_BIT;
+	if (uiState.transparencyOn) {
+		rasterizer.cullMode = VK_CULL_MODE_BACK_BIT;
+	}
+	else {
+		rasterizer.cullMode = VK_CULL_MODE_NONE;
+	}
 	rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
 	rasterizer.depthBiasEnable = VK_FALSE;
 	rasterizer.depthBiasConstantFactor = 0.0f;
@@ -791,7 +801,7 @@ void Main::createOpaqueObjectsPipeline(std::vector<char>vertShaderCode, std::vec
 	pipelineInfo.pColorBlendState = &colorBlending;
 	pipelineInfo.pDynamicState = &dynamicState;
 	pipelineInfo.layout = opaqueObjectsPipelineLayout;
-	pipelineInfo.renderPass = opaqueObjectsRenderPass;
+	pipelineInfo.renderPass = opaqueObjectsRenderPass.renderPass;
 	pipelineInfo.subpass = 0;
 	pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
 	pipelineInfo.basePipelineIndex = -1;
@@ -944,7 +954,7 @@ void Main::createWeightedColorPipeline(std::vector<char>vertShaderCode, std::vec
 	pipelineInfo.pColorBlendState = &colorBlending;
 	pipelineInfo.pDynamicState = &dynamicState;
 	pipelineInfo.layout = weightedColorPipelineLayout;
-	pipelineInfo.renderPass = transparentObjectsRenderPass;
+	pipelineInfo.renderPass = transparentObjectsRenderPass.renderPass;
 	pipelineInfo.subpass = 0;
 	pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
 	pipelineInfo.basePipelineIndex = -1;
@@ -1084,7 +1094,7 @@ void Main::createWeightedRevealPipeline(std::vector<char>vertShaderCode, std::ve
 	pipelineInfo.pColorBlendState = &colorBlending;
 	pipelineInfo.pDynamicState = &dynamicState;
 	pipelineInfo.layout = weightedRevealPipelineLayout;
-	pipelineInfo.renderPass = transparentObjectsRenderPass;
+	pipelineInfo.renderPass = transparentObjectsRenderPass.renderPass;
 	pipelineInfo.subpass = 1;
 	pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
 	pipelineInfo.basePipelineIndex = -1;
@@ -1098,169 +1108,10 @@ void Main::createWeightedRevealPipeline(std::vector<char>vertShaderCode, std::ve
 	vkDestroyShaderModule(device, vertShaderModule, nullptr);
 }
 
-void Main::createOpaqueObjectsRenderPass() {
-	std::array<VkAttachmentDescription, 2> attachments = {};  // Color attachment, depth attachment
-
-	// Color attachment
-	attachments[0].format = offscreenColorImage.format;
-	attachments[0].samples = msaaSamples;
-	attachments[0].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-	attachments[0].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-	attachments[0].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-	attachments[0].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-	attachments[0].initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-	attachments[0].finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-	attachments[0].flags = 0;
-
-	// Depth attachment
-	attachments[1] = attachments[0];
-	attachments[1].format = depthImage.format;
-	attachments[1].initialLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-	attachments[1].finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-
-	// Color attachment reference
-	VkAttachmentReference colorAttachmentRef = {};
-	colorAttachmentRef.attachment = 0;
-	colorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-
-	// Depth attachment reference
-	VkAttachmentReference depthAttachmentRef = {};
-	depthAttachmentRef.attachment = 1;
-	depthAttachmentRef.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-
-	// 1 subpass
-	VkSubpassDescription subpass = {};
-	subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-	subpass.colorAttachmentCount = 1;
-	subpass.pColorAttachments = &colorAttachmentRef;
-	subpass.pDepthStencilAttachment = &depthAttachmentRef;
-
-	// We only need to specify one dependency: Since the subpass has a barrier, the subpass will
-	// need a self-dependency. (There are implicit external dependencies that are automatically added.)
-	VkSubpassDependency selfDependency;
-	selfDependency.srcSubpass = 0;
-	selfDependency.dstSubpass = 0;
-	selfDependency.srcStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
-	selfDependency.dstStageMask = selfDependency.srcStageMask;
-	selfDependency.srcAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
-	selfDependency.dstAccessMask = selfDependency.srcAccessMask;
-	selfDependency.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;  // Required, since we use framebuffer-space stages
-
-	// No dependency on external data
-	VkRenderPassCreateInfo renderPassInfo = { VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO };
-	renderPassInfo.attachmentCount = static_cast<uint32_t>(attachments.size());
-	renderPassInfo.pAttachments = attachments.data();
-	renderPassInfo.subpassCount = 1;
-	renderPassInfo.pSubpasses = &subpass;
-	renderPassInfo.dependencyCount = 1;
-	renderPassInfo.pDependencies = &selfDependency;
-
-	if (vkCreateRenderPass(device, &renderPassInfo, nullptr, &opaqueObjectsRenderPass) != VK_SUCCESS) {
-		throw std::runtime_error("failed to create opaque objects render pass!");
-	}
-}
-
-void Main::createTransparentObjectsRenderPass() {
-	VkAttachmentDescription weightedColorAttachment = {};
-	weightedColorAttachment.format = weightedColorImage.format;
-	weightedColorAttachment.samples = msaaSamples;
-	weightedColorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-	weightedColorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-	weightedColorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-	weightedColorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-	weightedColorAttachment.initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-	weightedColorAttachment.finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-
-	VkAttachmentDescription weightedRevealAttachment = weightedColorAttachment;
-	weightedRevealAttachment.format = weightedRevealImage.format;
-
-	VkAttachmentDescription colorAttachment = weightedColorAttachment;
-	colorAttachment.format = offscreenColorImage.format;
-	colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-
-	VkAttachmentDescription depthAttachment = colorAttachment;
-	depthAttachment.format = depthImage.format;
-	depthAttachment.initialLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-	depthAttachment.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-
-	const std::array<VkAttachmentDescription, 4> allAttachments = { weightedColorAttachment, weightedRevealAttachment, colorAttachment, depthAttachment };
-
-	std::array<VkSubpassDescription, 2> subpasses{};
-
-	// Subpass 0 - weighted textures & depth texture for testing
-	std::array<VkAttachmentReference, 2> subpass0ColorAttachments{};
-	subpass0ColorAttachments[0].attachment = 0;
-	subpass0ColorAttachments[0].layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-	subpass0ColorAttachments[1].attachment = 1;
-	subpass0ColorAttachments[1].layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-
-	VkAttachmentReference depthAttachmentRef{};
-	depthAttachmentRef.attachment = 3;  // i.e. m_depthImage
-	depthAttachmentRef.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-
-	subpasses[0].pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-	subpasses[0].colorAttachmentCount = static_cast<uint32_t>(subpass0ColorAttachments.size());
-	subpasses[0].pColorAttachments = subpass0ColorAttachments.data();
-	subpasses[0].pDepthStencilAttachment = &depthAttachmentRef;
-
-	// Subpass 1
-	VkAttachmentReference subpass1ColorAttachment{};
-	subpass1ColorAttachment.attachment = 2;  // i.e. m_colorImage
-	subpass1ColorAttachment.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-
-	std::array<VkAttachmentReference, 2> subpass1InputAttachments{};
-	subpass1InputAttachments[0].attachment = 0;
-	subpass1InputAttachments[0].layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-	subpass1InputAttachments[1].attachment = 1;
-	subpass1InputAttachments[1].layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-	subpasses[1].pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-	subpasses[1].colorAttachmentCount = 1;
-	subpasses[1].pColorAttachments = &subpass1ColorAttachment;
-	subpasses[1].inputAttachmentCount = static_cast<uint32_t>(subpass1InputAttachments.size());
-	subpasses[1].pInputAttachments = subpass1InputAttachments.data();
-
-	// Dependencies
-	std::array<VkSubpassDependency, 3> subpassDependencies{};
-	subpassDependencies[0].srcSubpass = VK_SUBPASS_EXTERNAL;
-	subpassDependencies[0].dstSubpass = 0;
-	subpassDependencies[0].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-	subpassDependencies[0].dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-	subpassDependencies[0].srcAccessMask = 0;
-	subpassDependencies[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-	//
-	subpassDependencies[1].srcSubpass = 0;
-	subpassDependencies[1].dstSubpass = 1;
-	subpassDependencies[1].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-	subpassDependencies[1].dstStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
-	subpassDependencies[1].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-	subpassDependencies[1].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-	// Finally, we have a dependency at the end to allow the images to transition back to VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
-	subpassDependencies[2].srcSubpass = 1;
-	subpassDependencies[2].dstSubpass = VK_SUBPASS_EXTERNAL;
-	subpassDependencies[2].srcStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
-	subpassDependencies[2].dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-	subpassDependencies[2].srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
-	subpassDependencies[2].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-
-	// Finally create the render pass
-	VkRenderPassCreateInfo renderPassInfo = { VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO };
-	renderPassInfo.attachmentCount = static_cast<uint32_t>(allAttachments.size());
-	renderPassInfo.pAttachments = allAttachments.data();
-	renderPassInfo.dependencyCount = static_cast<uint32_t>(subpassDependencies.size());
-	renderPassInfo.pDependencies = subpassDependencies.data();
-	renderPassInfo.subpassCount = static_cast<uint32_t>(subpasses.size());
-	renderPassInfo.pSubpasses = subpasses.data();
-
-	if (vkCreateRenderPass(device, &renderPassInfo, nullptr, &transparentObjectsRenderPass) != VK_SUCCESS) {
-		throw std::runtime_error("failed to create transparent objects render pass!");
-	}
-}
-
 void Main::createOpaqueObjectsFramebuffer() {
 	std::array<VkImageView, 2> attachments = { offscreenColorImage.view, depthImage.view };
 	VkFramebufferCreateInfo framebufferInfo = { VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO };
-	framebufferInfo.renderPass = opaqueObjectsRenderPass;
+	framebufferInfo.renderPass = opaqueObjectsRenderPass.renderPass;
 	framebufferInfo.attachmentCount = static_cast<uint32_t>(attachments.size());
 	framebufferInfo.pAttachments = attachments.data();
 	framebufferInfo.width = offscreenColorImage.width;
@@ -1276,7 +1127,7 @@ void Main::createTransparentObjectsFramebuffer() {
 	std::array<VkImageView, 4> attachments = { weightedColorImage.view, weightedRevealImage.view, offscreenColorImage.view, depthImage.view };
 
 	VkFramebufferCreateInfo framebufferInfo = { VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO };
-	framebufferInfo.renderPass = transparentObjectsRenderPass;
+	framebufferInfo.renderPass = transparentObjectsRenderPass.renderPass;
 	framebufferInfo.attachmentCount = static_cast<uint32_t>(attachments.size());
 	framebufferInfo.pAttachments = attachments.data();
 	framebufferInfo.width = weightedColorImage.width;
@@ -1304,7 +1155,7 @@ void Main::createSwapchainFramebuffers() {
 		framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
 		// TODO: Note that you should use the render pass whose subpass writes directly to the swapchain image view.
 		// So this might be transparentObjectRenderPass
-		framebufferInfo.renderPass = transparentObjectsRenderPass;
+		framebufferInfo.renderPass = transparentObjectsRenderPass.renderPass;
 		framebufferInfo.attachmentCount = static_cast<uint32_t>(attachments.size());
 		framebufferInfo.pAttachments = attachments.data();
 		framebufferInfo.width = swapChainExtent.width;
@@ -1317,8 +1168,31 @@ void Main::createSwapchainFramebuffers() {
 	}	
 }
 
+void Main::recordDrawForMesh(VkCommandBuffer cmd, const std::string& name) {
+	const VkBuffer vbuf = vertices.at(name).buffer;
+	const VkBuffer ibuf = indices.at(name).buffer;
+	const uint32_t indexCnt = static_cast<uint32_t>(indices.at(name).count);
+
+	const VkDeviceSize offset = 0;
+
+	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+		opaqueObjectsPipeline);
+
+	vkCmdBindVertexBuffers(cmd, 0, 1, &vbuf, &offset);
+	vkCmdBindIndexBuffer(cmd, ibuf, 0, VK_INDEX_TYPE_UINT32);
+
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+		opaqueObjectsPipelineLayout,
+		0, 1,
+		&descriptor.descriptorSets[currentFrame],
+		0, nullptr);
+
+	vkCmdDrawIndexed(cmd, indexCnt, 1, 0, 0, 0);
+}
+
 void Main::createFramebuffers() {
 	createSwapchainFramebuffers();
+	createUIFramebuffers();
 	createOpaqueObjectsFramebuffer();
 	createTransparentObjectsFramebuffer();
 }
@@ -1388,7 +1262,7 @@ void Main::recordOpaqueObjectsRenderPass(VkCommandBuffer commandBuffer) {
 	
 	// Set up the render pass
 	VkRenderPassBeginInfo renderPassInfo = { VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO };
-	renderPassInfo.renderPass = opaqueObjectsRenderPass;
+	renderPassInfo.renderPass = opaqueObjectsRenderPass.renderPass;
 	renderPassInfo.framebuffer = opaqueObjectsFramebuffer;
 
 	renderPassInfo.renderArea.offset = { 0, 0 };
@@ -1402,14 +1276,6 @@ void Main::recordOpaqueObjectsRenderPass(VkCommandBuffer commandBuffer) {
 	renderPassInfo.pClearValues = clearValues.data();
 
 	vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
-
-	VkBuffer vertexBuffers[] = { vertices["head"].buffer };
-	VkDeviceSize offsets[] = { 0 };
-
-	vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, opaqueObjectsPipeline);
-	vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
-	vkCmdBindIndexBuffer(commandBuffer, indices["head"].buffer, 0, VK_INDEX_TYPE_UINT32);
-	vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, opaqueObjectsPipelineLayout, 0, 1, &descriptor.descriptorSets[currentFrame], 0, nullptr);
 
 	// We need to do this because we've set the viewport and scissor to be dynamic.
 	VkViewport viewport{};
@@ -1426,7 +1292,13 @@ void Main::recordOpaqueObjectsRenderPass(VkCommandBuffer commandBuffer) {
 	scissor.extent = swapChainExtent;
 	vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
 
-	vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(indices["head"].count), 1, 0, 0, 0);
+	if (uiState.transparencyOn) {
+		recordDrawForMesh(commandBuffer, "head");
+	}
+	else {
+		recordDrawForMesh(commandBuffer, "head");
+		recordDrawForMesh(commandBuffer, "hair");
+	}
 	
 	vkCmdEndRenderPass(commandBuffer);
 }
@@ -1435,7 +1307,7 @@ void Main::recordTransparentObjectsRenderPass(VkCommandBuffer commandBuffer) {
 	offscreenColorImage.transitionLayout(commandBuffer, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT);
 
 	VkRenderPassBeginInfo renderPassInfo = { VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO };
-	renderPassInfo.renderPass = transparentObjectsRenderPass;
+	renderPassInfo.renderPass = transparentObjectsRenderPass.renderPass;
 	renderPassInfo.framebuffer = transparentObjectsFramebuffer;
 	renderPassInfo.renderArea.offset = { 0, 0 };
 	renderPassInfo.renderArea.extent.width = weightedColorImage.width;
@@ -1475,7 +1347,6 @@ void Main::recordTransparentObjectsRenderPass(VkCommandBuffer commandBuffer) {
 	// Draw all objects
 	vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(indices["hair"].count), 1, 0, 0, 0);
 	
-
 	// Move to the next subpass
 	vkCmdNextSubpass(commandBuffer, VK_SUBPASS_CONTENTS_INLINE);
 	// COMPOSITE PASS
@@ -1546,17 +1417,13 @@ void Main::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageInde
 	// Draw opaque objects.
 	recordOpaqueObjectsRenderPass(commandBuffer);
 	// Draw transparent objects.
-	recordTransparentObjectsRenderPass(commandBuffer);
+	if (uiState.transparencyOn) {
+		recordTransparentObjectsRenderPass(commandBuffer);
+	}
 	// Blit to swapchain.
 	recordSwapchainBlit(commandBuffer, imageIndex);
 	// Draw UI.
-	ui.recordImguiRenderPass(
-		commandBuffer,
-		imageIndex,
-		swapChainImages,
-		VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, // TODO: for now this is harded but should be recorded from previous transitions
-		swapChainExtent
-	);
+	recordUIRenderPass(commandBuffer, imageIndex);
 
 	if (vkEndCommandBuffer(commandBuffer) != VK_SUCCESS) {
 		throw std::runtime_error("Failed to record command buffer!");
@@ -1602,7 +1469,7 @@ void Main::drawFrame(ImGuiIO& io) {
 	vkResetFences(device, 1, &inFlightFences[currentFrame]);
 	vkResetCommandBuffer(commandBuffers[currentFrame], 0);
 
-	ui.drawNewFrame();
+	ui.drawNewFrame(uiState);
 
 	recordCommandBuffer(commandBuffers[currentFrame], imageIndex);
 
@@ -1663,6 +1530,11 @@ void Main::cleanupSwapChain() {
 	ui.destroy();
 
 	// Destroy framebuffers.
+	for (VkFramebuffer fb : uiFramebuffers) {
+		vkDestroyFramebuffer(device, fb, nullptr);
+	}
+	uiFramebuffers.clear();
+
 	for (size_t i = 0; i < swapChainFramebuffers.size(); i++) {
 		vkDestroyFramebuffer(device, swapChainFramebuffers[i], nullptr);
 	}
@@ -2328,9 +2200,229 @@ void Main::createOffscreenImageResources() {
 	createImageResource(&downsampleImage, offscreenColorImage.format, VK_SAMPLE_COUNT_1_BIT, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
 }
 
+void Main::createRenderPasses() {
+	/* Opaque objects render pass */
+	opaqueObjectsRenderPass = RenderPass(&device);
+	// Add attachments
+	{
+		// Color attachment
+		opaqueObjectsRenderPass.addAttachment(
+			offscreenColorImage.format,
+			msaaSamples,
+			VK_ATTACHMENT_LOAD_OP_CLEAR,
+			VK_ATTACHMENT_STORE_OP_STORE,
+			VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+			VK_ATTACHMENT_STORE_OP_DONT_CARE,
+			VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+			VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+		);
+		// Depth attachment
+		opaqueObjectsRenderPass.addAttachment(
+			depthImage.format,
+			msaaSamples,
+			VK_ATTACHMENT_LOAD_OP_CLEAR,
+			VK_ATTACHMENT_STORE_OP_STORE,
+			VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+			VK_ATTACHMENT_STORE_OP_DONT_CARE,
+			VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+			VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
+		);
+	}
+	
+	// Add subpass
+	{
+		opaqueObjectsRenderPass.addSubpass(
+			VK_PIPELINE_BIND_POINT_GRAPHICS,
+			{
+				{0, AttachmentType::COLOR},
+				{1, AttachmentType::DEPTH}
+			}
+		);
+	}
+	
+	// Add dependency
+	{
+		VkSubpassDependency selfDependency;
+		selfDependency.srcSubpass = 0;
+		selfDependency.dstSubpass = 0;
+		selfDependency.srcStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+		selfDependency.dstStageMask = selfDependency.srcStageMask;
+		selfDependency.srcAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+		selfDependency.dstAccessMask = selfDependency.srcAccessMask;
+		selfDependency.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;  // Required, since we use framebuffer-space stages
+		opaqueObjectsRenderPass.createRenderPass({ selfDependency });
+	}
+	
+	/* Transparent objects render pass */
+	transparentObjectsRenderPass = RenderPass(&device);
+	// Add attachments
+	{
+		// weightedColorAttachment
+		transparentObjectsRenderPass.addAttachment(
+			weightedColorImage.format,
+			msaaSamples,
+			VK_ATTACHMENT_LOAD_OP_CLEAR,
+			VK_ATTACHMENT_STORE_OP_STORE,
+			VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+			VK_ATTACHMENT_STORE_OP_DONT_CARE,
+			VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+			VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+		);
+		// weightedRevealAttachment
+		transparentObjectsRenderPass.addAttachment(
+			weightedRevealImage.format,
+			msaaSamples,
+			VK_ATTACHMENT_LOAD_OP_CLEAR,
+			VK_ATTACHMENT_STORE_OP_STORE,
+			VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+			VK_ATTACHMENT_STORE_OP_DONT_CARE,
+			VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+			VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+		);
+		// colorAttachment
+		transparentObjectsRenderPass.addAttachment(
+			offscreenColorImage.format,
+			msaaSamples,
+			VK_ATTACHMENT_LOAD_OP_LOAD,
+			VK_ATTACHMENT_STORE_OP_STORE,
+			VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+			VK_ATTACHMENT_STORE_OP_DONT_CARE,
+			VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+			VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+		);
+		// depthAttachment
+		transparentObjectsRenderPass.addAttachment(
+			depthImage.format,
+			msaaSamples,
+			VK_ATTACHMENT_LOAD_OP_LOAD,
+			VK_ATTACHMENT_STORE_OP_STORE,
+			VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+			VK_ATTACHMENT_STORE_OP_DONT_CARE,
+			VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+			VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
+		);
+	}
+	
+	// Add subpasses
+	{
+		// Subpass 0
+		transparentObjectsRenderPass.addSubpass(
+			VK_PIPELINE_BIND_POINT_GRAPHICS,
+			{
+				{0, AttachmentType::COLOR},
+				{1, AttachmentType::COLOR},
+				{3, AttachmentType::DEPTH}
+			}
+		);
+
+		// Subpass 1
+		transparentObjectsRenderPass.addSubpass(
+			VK_PIPELINE_BIND_POINT_GRAPHICS,
+			{
+				{0, AttachmentType::INPUT},
+				{1, AttachmentType::INPUT},
+				{2, AttachmentType::COLOR}
+			}
+		);
+	}
+
+	// Add dependencies
+	{
+		std::vector<VkSubpassDependency> subpassDependencies(3);
+		subpassDependencies[0].srcSubpass = VK_SUBPASS_EXTERNAL;
+		subpassDependencies[0].dstSubpass = 0;
+		subpassDependencies[0].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+		subpassDependencies[0].dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+		subpassDependencies[0].srcAccessMask = 0;
+		subpassDependencies[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+
+		subpassDependencies[1].srcSubpass = 0;
+		subpassDependencies[1].dstSubpass = 1;
+		subpassDependencies[1].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+		subpassDependencies[1].dstStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+		subpassDependencies[1].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+		subpassDependencies[1].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+		// Finally, we have a dependency at the end to allow the images to transition back to VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+		subpassDependencies[2].srcSubpass = 1;
+		subpassDependencies[2].dstSubpass = VK_SUBPASS_EXTERNAL;
+		subpassDependencies[2].srcStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+		subpassDependencies[2].dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+		subpassDependencies[2].srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+		subpassDependencies[2].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+		transparentObjectsRenderPass.createRenderPass(subpassDependencies);
+	}
+
+	/* UI render pass */
+	uiRenderPass = RenderPass(&device);
+	// Add attachment
+	{
+		uiRenderPass.addAttachment(
+			swapChainImageFormat,
+			VK_SAMPLE_COUNT_1_BIT, // UI needn’t be MSAA
+			VK_ATTACHMENT_LOAD_OP_LOAD, // keep the blit result
+			VK_ATTACHMENT_STORE_OP_STORE, // present later
+			VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+			VK_ATTACHMENT_STORE_OP_DONT_CARE,
+			VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+			VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+		);
+	}
+
+	// Add subpass
+	{
+		uiRenderPass.addSubpass(
+			VK_PIPELINE_BIND_POINT_GRAPHICS,
+			{
+				{0, AttachmentType::COLOR}
+			}
+		);
+	}
+
+	// Add dependencies
+	{
+		VkSubpassDependency depIn{};
+		depIn.srcSubpass = VK_SUBPASS_EXTERNAL;
+		depIn.dstSubpass = 0;
+		depIn.srcStageMask = VK_PIPELINE_STAGE_TRANSFER_BIT;
+		depIn.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+		depIn.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+		depIn.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT |
+			VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+
+		VkSubpassDependency depOut{};
+		depOut.srcSubpass = 0;
+		depOut.dstSubpass = VK_SUBPASS_EXTERNAL;
+		depOut.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+		depOut.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+		depOut.dstStageMask = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
+		depOut.dstAccessMask = 0;
+		uiRenderPass.createRenderPass({ depIn, depOut });
+	}
+}
+
+void Main::createUIFramebuffers() {
+	const size_t size = swapChainImageViews.size();
+	uiFramebuffers.resize(size);
+
+	for (size_t i = 0; i < size; ++i)
+	{
+		VkImageView attachments[] = { swapChainImageViews[i].view };
+
+		VkFramebufferCreateInfo fbInfo{};
+		fbInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+		fbInfo.renderPass = uiRenderPass.renderPass;
+		fbInfo.attachmentCount = 1;
+		fbInfo.pAttachments = attachments;
+		fbInfo.width = swapChainExtent.width;
+		fbInfo.height = swapChainExtent.height;
+		fbInfo.layers = 1;
+
+		if (vkCreateFramebuffer(device, &fbInfo, nullptr, &uiFramebuffers[i]) != VK_SUCCESS)
+			throw std::runtime_error("failed to create UI framebuffer");
+	}
+}
+
 void Main::createUI() {
-	ui.createImguiRenderPass(swapChainImageFormat);
-	ui.createImguiFramebuffers(swapChainImageViews, swapChainExtent.width, swapChainExtent.height);
 	QueueFamilyIndices indices = findQueueFamilies(physicalDevice);
 	ui.init(
 		window,
@@ -2338,7 +2430,44 @@ void Main::createUI() {
 		physicalDevice,
 		indices.graphicsFamily.value(),
 		graphicsQueue,
+		uiRenderPass.renderPass,
 		imageCount,
 		swapChainImages.size()
 	);
+}
+
+void Main::recordUIRenderPass(VkCommandBuffer commandBuffer, uint32_t imageIndex) {
+	cmdImageTransition(
+		commandBuffer,
+		swapChainImages[imageIndex],
+		VK_IMAGE_ASPECT_COLOR_BIT,
+		VK_ACCESS_TRANSFER_WRITE_BIT,
+		VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+		VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, // TODO: for now this is harded but should be recorded from previous transitions
+		VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+	);
+
+	VkRenderPassBeginInfo rpBegin{};
+	rpBegin.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+	rpBegin.renderPass = uiRenderPass.renderPass;
+	rpBegin.framebuffer = uiFramebuffers[imageIndex];
+	rpBegin.renderArea.extent = swapChainExtent;
+	rpBegin.clearValueCount = 0; // we LOAD, so no clears
+
+	vkCmdBeginRenderPass(commandBuffer, &rpBegin, VK_SUBPASS_CONTENTS_INLINE);
+
+	// draw the UI
+	ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), commandBuffer);
+
+	vkCmdEndRenderPass(commandBuffer);
+
+	// COLOR_ATTACHMENT_OPTIMAL -> PRESENT_SRC_KHR
+	cmdImageTransition(commandBuffer,
+		swapChainImages[imageIndex],
+		VK_IMAGE_ASPECT_COLOR_BIT,
+		VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+		0,
+		VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+		VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+
 }

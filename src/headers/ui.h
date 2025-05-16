@@ -11,35 +11,18 @@
 
 #include "descriptor.h"
 #include "vulkanImage.h"
+#include "utils.h"
 
 class UI {
 private:
 	VkDevice* device;
 
 public:
-	VkRenderPass renderPass;
-	std::vector<VkFramebuffer> framebuffers;
 	VkDescriptorPool imguiPool;
 
 	UI();
 	UI(VkDevice* device);
 	~UI();
-
-	void createImguiRenderPass(const VkFormat format);
-
-	void createImguiFramebuffers(
-		const std::vector<VulkanImage> swapChainImageViews,
-		const uint32_t width,
-		const uint32_t height
-	);
-
-	void recordImguiRenderPass(
-		VkCommandBuffer commandBuffer,
-		uint32_t imageIndex,
-		std::vector<VkImage> swapChainImages,
-		VkImageLayout oldLayout,
-		VkExtent2D extent
-	);
 
 	void init(
 		GLFWwindow* window,
@@ -47,6 +30,7 @@ public:
 		VkPhysicalDevice physicalDevice,
 		uint32_t queryFamilyIndex,
 		VkQueue queue,
+		VkRenderPass renderPass,
 		uint32_t minImageCount,
 		uint32_t imageCount
 	);
@@ -55,7 +39,7 @@ public:
 
 	ImGuiIO& getIO();
 
-	void drawNewFrame();
+	void drawNewFrame(UIState &state);
 
 	void updateWindows();
 };

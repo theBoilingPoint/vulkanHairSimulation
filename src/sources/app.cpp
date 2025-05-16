@@ -99,13 +99,15 @@ int main() {
 	std::string opaqueFragShaderPath = compileShader("shaders/main.frag", "mainFrag", Shader::FRAGMENT);
 	std::string weightedColorShaderPath = compileShader("shaders/weightedColor.frag", "weightedColor", Shader::FRAGMENT);
 	std::string weightedRevealShaderPath = compileShader("shaders/weightedReveal.frag", "weightedReveal", Shader::FRAGMENT);
+	std::string opaqueHairShaderPath = compileShader("shaders/hair.frag", "opaqueHair", Shader::FRAGMENT);
 
 	std::unordered_map<std::string, std::vector<char>> shaders = {
 		{"vertShader", readFile(vertShaderPath)},
 		{"triangleShader", readFile(triShaderPath)},
 		{"opaqueFragShader", readFile(opaqueFragShaderPath)},
 		{"weightedColorFragShader", readFile(weightedColorShaderPath)},
-		{"weightedRevealFragShader", readFile(weightedRevealShaderPath)}
+		{"weightedRevealFragShader", readFile(weightedRevealShaderPath)},
+		{"opaqueHairFragShader", readFile(opaqueHairShaderPath)}
 	};
 
 	std::unordered_map<std::string, std::pair<std::vector<Vertex>, std::vector<uint32_t>>> models = {

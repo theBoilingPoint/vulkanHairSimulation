@@ -20,7 +20,6 @@ struct VertexAttributes {
 layout(location = 0) in VertexAttributes inVertexAttributes;
 
 layout(location = 0) out vec4 outColor;
-layout(location = 1) out float outReveal;
 
 // Parallax mapping 
 const float heightScale = 0.005; 
@@ -267,20 +266,5 @@ void main() {
     }
     hairCol /= float(light_pos.length());
 
-    // WBOIT output
-    const float z = -inVertexAttributes.depth;
-	vec4 color = vec4(hairCol * albedo.a, albedo.a);
-    float distWeight = pow(abs(z), distanceWeightExp);
-	float alphaWeight = min(1.0, max(max(color.r, color.g), max(color.b, color.a)) * 40.0 + 0.01);
-	alphaWeight *= alphaWeight;
-
-	// const float weight = alphaWeight * distWeight;
-    const float weight = distWeight;
-    // const float weight = pow(abs(z) + 5.0, -2.0f);
-
-	// GL Blend function: GL_ONE, GL_ONE
-	outColor = color * weight;
-
-	// GL blend function: GL_ZERO, GL_ONE_MINUS_SRC_ALPHA
-	outReveal = color.a;
+	outColor = vec4(hairCol, albedo.a);
 }
