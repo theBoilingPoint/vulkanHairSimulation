@@ -29,9 +29,15 @@ Once you are done, you can simply build the project to generate the static libra
 7. Add `imgui.lib` to the `Additional Dependencies` field.
 
 ### Windows
-You'll need to create an empty project in Visual Studio and add the source and header files to the project. Then, you just need to follow the link provided above. Note that you might have to set up Release and Debug configurations separately.
+You'll need to create an empty project in Visual Studio and add the source and header files to the project. Then, you just need to follow the link provided above.
+
+For reference, this is my `C/C++` -> `Additional Include Directories` from `src`'s project properties:
+![](imgs/additional_include_lib.png)
+and this is my `Linker` -> `Additional Library Directories`:
+![](imgs/additional_lib_dir.png)
+
+### Linux
+Currently not supported.
 
 ### MacOS
-You'll need to create a new project in Xcode as described in the tutorial and add the source and header files to the project. However, note that the website might be outdated. 
-- You should actually instal Vulkan SDK directly from the [official website](https://vulkan.lunarg.com/sdk/home) instead of the link provided in the tutorial.
-- If your homebrew doesn't look the same as the one in the tutorial, you should probably add `/opt/homebrew/opt/glfw/include` (non-recursive) to the `Header Search Paths` and `/opt/homebrew/opt/glfw/lib` (non-recursive) to the `Library Search Paths`.
+Currently not supported.

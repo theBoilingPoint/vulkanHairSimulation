@@ -123,8 +123,6 @@ private:
 	std::vector<VkFramebuffer> swapChainFramebuffers;
 	uint32_t imageCount;
 
-	ImGui_ImplVulkanH_Window g_MainWindowData;
-
 	VkCommandPool commandPool;
 
 	std::unordered_map<std::string, std::vector<char>> shaders;
@@ -177,6 +175,10 @@ private:
 	RenderPass opaqueObjectsRenderPass;
 	VkFramebuffer opaqueObjectsFramebuffer;
 	Pipeline opaqueObjectsPipeline;
+
+	// Opaque Hair
+	RenderPass opaqueHairRenderPass;
+	Pipeline opaqueHairPipeline;
 
 	// Transparent Objects
 	RenderPass transparentObjectsRenderPass;
@@ -235,8 +237,6 @@ private:
 	void createSwapChain();
 
 	void createSwapchainImageViews();
-
-	VkShaderModule createShaderModule(const std::vector<char>& code);
 
 	void createSwapchainFramebuffers();
 
@@ -309,7 +309,7 @@ private:
 	void createEnvMapImage(const HDRImage& envMap);
 
 	// Functions added for BWOIT
-	void recordDrawForMesh(VkCommandBuffer cmd, const std::string& name);
+	void recordDrawForMesh(VkCommandBuffer cmd, const std::string& name, Pipeline &pipeline);
 
 	void createFramebuffers();
 

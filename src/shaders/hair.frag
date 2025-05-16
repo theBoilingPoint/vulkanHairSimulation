@@ -245,11 +245,11 @@ void main() {
         discard;
     }
 
-    // texCoords = inVertexAttributes.texCoord;
     vec4 albedo = texture(texAlbedo, texCoords);
-	if (albedo.a < 0.01) {
-		discard;
-	}
+    // Alpha cutoff
+	// if (albedo.a < 0.01) {
+	// 	discard;
+	// }
 
     vec3 normal = texture(texNormal, texCoords).xyz;
 	normal = normalize(normal * 2.0 - 1.0);

@@ -132,6 +132,8 @@ void Main::cleanUpVulkan() {
 
 	opaqueObjectsPipeline.destroy();
 	opaqueObjectsRenderPass.destroy();
+	opaqueHairPipeline.destroy();
+	opaqueHairRenderPass.destroy();
 	weightedColorPipeline.destroy();
 	weightedRevealPipeline.destroy();
 	transparentObjectsRenderPass.destroy();
@@ -588,25 +590,6 @@ void Main::createSwapchainImageViews() {
 	}
 }
 
-VkShaderModule Main::createShaderModule(const std::vector<char>& code) {
-	VkShaderModuleCreateInfo createInfo{};
-	createInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-	createInfo.codeSize = code.size();
-	// the size of the bytecode is specified in bytes, but the bytecode pointer is a uint32_t pointer rather than a char pointer. 
-	// Therefore we will need to cast the pointer with reinterpret_cast as shown below.
-	// We also need to ensure that the data satisfies the alignment requirements of uint32_t. 
-	// Lucky for us, the data is stored in an std::vector where the default allocator already ensures that the data satisfies 
-	// the worst case alignment requirements.
-	createInfo.pCode = reinterpret_cast<const uint32_t*>(code.data());
-
-	VkShaderModule shaderModule;
-	if (vkCreateShaderModule(device, &createInfo, nullptr, &shaderModule) != VK_SUCCESS) {
-		throw std::runtime_error("Failed to create shader module!");
-	}
-
-	return shaderModule;
-}
-
 void Main::createDescriptor() {
 	descriptor = Descriptor(
 		&device,
@@ -675,12 +658,7 @@ void Main::createPipelines() {
 	opaqueRasterizer.rasterizerDiscardEnable = VK_FALSE;
 	opaqueRasterizer.polygonMode = VK_POLYGON_MODE_FILL;
 	opaqueRasterizer.lineWidth = 1.0f;
-	if (uiState.transparencyOn) {
-		opaqueRasterizer.cullMode = VK_CULL_MODE_BACK_BIT;
-	}
-	else {
-		opaqueRasterizer.cullMode = VK_CULL_MODE_NONE;
-	}
+	opaqueRasterizer.cullMode = VK_CULL_MODE_BACK_BIT;
 	opaqueRasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
 	opaqueRasterizer.depthBiasEnable = VK_FALSE;
 	opaqueRasterizer.depthBiasConstantFactor = 0.0f;
@@ -791,6 +769,23 @@ void Main::createPipelines() {
 		{ weightedRevealColorBlendAttachment },
 		1
 	);
+
+	/* opaqueHairPipeline */
+	opaqueHairPipeline = Pipeline(
+		&device,
+		opaqueHairRenderPass
+	);
+	opaqueHairPipeline.createPipelineLayout(&descriptor.descriptorSetLayout);
+	opaqueHairPipeline.createPipeline(
+		shaders["vertShader"],
+		shaders["opaqueHairFragShader"],
+		false,
+		weightedColorRasterizer,
+		msaaSamples,
+		opaqueDepthStencil,
+		{ opaqueColorBlendAttachment },
+		0
+	);
 }
 
 void Main::createOpaqueObjectsFramebuffer() {
@@ -853,7 +848,7 @@ void Main::createSwapchainFramebuffers() {
 	}	
 }
 
-void Main::recordDrawForMesh(VkCommandBuffer cmd, const std::string& name) {
+void Main::recordDrawForMesh(VkCommandBuffer cmd, const std::string& name, Pipeline &pipeline) {
 	const VkBuffer vbuf = vertices.at(name).buffer;
 	const VkBuffer ibuf = indices.at(name).buffer;
 	const uint32_t indexCnt = static_cast<uint32_t>(indices.at(name).count);
@@ -861,20 +856,19 @@ void Main::recordDrawForMesh(VkCommandBuffer cmd, const std::string& name) {
 	const VkDeviceSize offset = 0;
 
 	//vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-	//	opaqueObjectsPipeline);
-	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-		opaqueObjectsPipeline.pipeline);
+	//	opaqueObjectsPipeline.pipeline);
+	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.pipeline);
 
 	vkCmdBindVertexBuffers(cmd, 0, 1, &vbuf, &offset);
 	vkCmdBindIndexBuffer(cmd, ibuf, 0, VK_INDEX_TYPE_UINT32);
 
-	//vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-	//	opaqueObjectsPipelineLayout,
-	//	0, 1,
-	//	&descriptor.descriptorSets[currentFrame],
-	//	0, nullptr);
-	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+	/*vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
 		opaqueObjectsPipeline.layout,
+		0, 1,
+		&descriptor.descriptorSets[currentFrame],
+		0, nullptr);*/
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+		pipeline.layout,
 		0, 1,
 		&descriptor.descriptorSets[currentFrame],
 		0, nullptr);
@@ -985,11 +979,11 @@ void Main::recordOpaqueObjectsRenderPass(VkCommandBuffer commandBuffer) {
 	vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
 
 	if (uiState.transparencyOn) {
-		recordDrawForMesh(commandBuffer, "head");
+		recordDrawForMesh(commandBuffer, "head", opaqueObjectsPipeline);
 	}
 	else {
-		recordDrawForMesh(commandBuffer, "head");
-		recordDrawForMesh(commandBuffer, "hair");
+		recordDrawForMesh(commandBuffer, "head", opaqueObjectsPipeline);
+		recordDrawForMesh(commandBuffer, "hair", opaqueHairPipeline);
 	}
 	
 	vkCmdEndRenderPass(commandBuffer);
@@ -2092,6 +2086,57 @@ void Main::createRenderPasses() {
 		depOut.dstAccessMask = 0;
 		uiRenderPass.createRenderPass({ depIn, depOut });
 	}
+
+	/* Opaque hair render pass */
+	opaqueHairRenderPass = RenderPass(&device);
+	// Add attachaments
+	{
+		// Color attachment
+		opaqueHairRenderPass.addAttachment(
+			offscreenColorImage.format,
+			msaaSamples,
+			VK_ATTACHMENT_LOAD_OP_CLEAR,
+			VK_ATTACHMENT_STORE_OP_STORE,
+			VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+			VK_ATTACHMENT_STORE_OP_DONT_CARE,
+			VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+			VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+		);
+		// Depth attachment
+		opaqueHairRenderPass.addAttachment(
+			depthImage.format,
+			msaaSamples,
+			VK_ATTACHMENT_LOAD_OP_CLEAR,
+			VK_ATTACHMENT_STORE_OP_STORE,
+			VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+			VK_ATTACHMENT_STORE_OP_DONT_CARE,
+			VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+			VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
+		);
+	}
+	// Add subpass
+	{
+		opaqueHairRenderPass.addSubpass(
+			VK_PIPELINE_BIND_POINT_GRAPHICS,
+			{
+				{0, AttachmentType::COLOR},
+				{1, AttachmentType::DEPTH}
+			}
+		);
+	}
+	// Add dependency
+	{
+		VkSubpassDependency selfDependency;
+		selfDependency.srcSubpass = 0;
+		selfDependency.dstSubpass = 0;
+		selfDependency.srcStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+		selfDependency.dstStageMask = selfDependency.srcStageMask;
+		selfDependency.srcAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+		selfDependency.dstAccessMask = selfDependency.srcAccessMask;
+		selfDependency.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;  // Required, since we use framebuffer-space stages
+		opaqueHairRenderPass.createRenderPass({ selfDependency });
+	}
+	
 }
 
 void Main::createUIFramebuffers() {
